@@ -94,7 +94,6 @@ function InvoicePdf({ company, client, document }: InvoicePdfProps) {
 
       <View style={styles.totals}>
         <View style={styles.totalRow}><Text>Subtotal</Text><Text>{formatMoney(document.subtotalCents, document.currency)}</Text></View>
-        <View style={styles.totalRow}><Text>Tax</Text><Text>{formatMoney(document.taxAmountCents, document.currency)}</Text></View>
         <View style={[styles.totalRow, styles.total]}><Text>Total</Text><Text>{formatMoney(document.totalCents, document.currency)}</Text></View>
       </View>
 

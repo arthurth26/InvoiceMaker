@@ -52,7 +52,33 @@ pub fn create_replacement_backup(connection: &Connection, database_directory: &P
 	create_backup(connection, database_directory, "invoicemaker-before-replacement")
 }
 
+pub fn create_deletion_backup(connection: &Connection, database_directory: &Path) -> Result<PathBuf, DatabaseError> {
+	create_backup(connection, database_directory, "invoicemaker-before-deletion")
+}
+
+pub fn store_proof(source: &Path, document_id: &str, database_directory: &Path) -> Result<String, DatabaseError> {
+	let filename = source.file_name().ok_or_else(|| DatabaseError::FileSystem(std::io::Error::new(
+		std::io::ErrorKind::InvalidInput,
+		"proof file must have a filename",
+	)))?;
+	let relative_path = Path::new("invoices").join(document_id).join(filename);
+	let destination = database_directory.join(&relative_path);
+	if let Some(directory) = destination.parent() {
+		fs::create_dir_all(directory).map_err(DatabaseError::FileSystem)?;
+	}
+	fs::copy(source, destination).map_err(DatabaseError::FileSystem)?;
+	Ok(relative_path.to_string_lossy().into_owned())
+}
+
+pub fn open_proof(relative_path: &str, database_directory: &Path) -> Result<(), DatabaseError> {
+	tauri_plugin_opener::open_path(database_directory.join(relative_path), Option::<String>::None)
+		.map_err(|error| DatabaseError::FileSystem(std::io::Error::other(error.to_string())))
+}
+
 pub fn save_pdf(destination: &Path, contents: &[u8]) -> Result<(), DatabaseError> {
+	if let Some(directory) = destination.parent() {
+		fs::create_dir_all(directory).map_err(DatabaseError::FileSystem)?;
+	}
 	fs::write(destination, contents).map_err(DatabaseError::FileSystem)
 }
 
@@ -150,13 +176,14 @@ mod tests {
 
 	#[test]
 	fn writes_pdf_contents_to_the_selected_destination() {
-		let path = std::env::temp_dir().join(format!("invoicemaker-pdf-test-{}.pdf", std::process::id()));
-		let _ = fs::remove_file(&path);
+		let directory = std::env::temp_dir().join(format!("invoicemaker-pdf-test-{}", std::process::id()));
+		let path = directory.join("output.pdf");
+		let _ = fs::remove_dir_all(&directory);
 
 		save_pdf(&path, b"%PDF-test").expect("write PDF");
 
 		assert_eq!(fs::read(&path).expect("read PDF"), b"%PDF-test");
-		fs::remove_file(path).expect("remove test PDF");
+		fs::remove_dir_all(directory).expect("remove test PDF directory");
 	}
 }
 

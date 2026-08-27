@@ -39,6 +39,9 @@ pub fn run() {
             commands::get_document,
             commands::create_document,
             commands::update_document,
+            commands::store_proof,
+            commands::open_proof,
+            commands::delete_document,
             commands::create_manual_backup,
             commands::save_pdf,
         ])

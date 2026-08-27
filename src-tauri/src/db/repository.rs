@@ -216,6 +216,17 @@ impl<'connection> Repository<'connection> {
 		self.list_records("document", RecordKind::Document, "ORDER BY issue_date DESC, invoice_number DESC")
 	}
 
+	pub fn delete_document(&self, id: &str) -> RepositoryResult<()> {
+		let affected_rows = self.connection.execute(
+			"DELETE FROM records WHERE id = ?1 AND record_kind = 'document'",
+			[id],
+		)?;
+		if affected_rows == 0 {
+			return Err(RepositoryError::DocumentNotFound);
+		}
+		Ok(())
+	}
+
 	fn get_record<T: DeserializeOwned>(
 		&self,
 		id: &str,

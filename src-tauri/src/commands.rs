@@ -58,6 +58,24 @@ pub fn update_document(record: StoredRecord<Document>, database: State<'_, Datab
 }
 
 #[tauri::command]
+pub fn store_proof(source: String, document_id: String, database: State<'_, DatabaseState>) -> CommandResult<String> {
+	crate::db::store_proof(Path::new(&source), &document_id, &database.database_directory)
+		.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn open_proof(relative_path: String, database: State<'_, DatabaseState>) -> CommandResult<()> {
+	crate::db::open_proof(&relative_path, &database.database_directory).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_document(id: String, database: State<'_, DatabaseState>) -> CommandResult<()> {
+	let connection = database.connection.lock().map_err(|_| "database connection is unavailable".to_owned())?;
+	crate::db::create_deletion_backup(&connection, &database.database_directory).map_err(|error| error.to_string())?;
+	Repository::new(&connection).delete_document(&id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn create_manual_backup(destination: String, database: State<'_, DatabaseState>) -> CommandResult<()> {
 	let connection = database.connection.lock().map_err(|_| "database connection is unavailable".to_owned())?;
 	crate::db::create_manual_backup(&connection, Path::new(&destination)).map_err(|error| error.to_string())

@@ -38,6 +38,18 @@ export function updateDocument(record: StoredRecord<Document>): Promise<void> {
   return invoke("update_document", { record });
 }
 
+export function storeProof(source: string, documentId: string): Promise<string> {
+  return invoke("store_proof", { source, documentId });
+}
+
+export function openProof(relativePath: string): Promise<void> {
+  return invoke("open_proof", { relativePath });
+}
+
+export function deleteDocument(id: string): Promise<void> {
+  return invoke("delete_document", { id });
+}
+
 export function createManualBackup(destination: string): Promise<void> {
   return invoke("create_manual_backup", { destination });
 }
