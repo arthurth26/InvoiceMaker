@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use tauri::State;
 
 use crate::{
@@ -48,6 +50,12 @@ pub fn create_document(record: StoredRecord<Document>, database: State<'_, Datab
 #[tauri::command]
 pub fn update_document(record: StoredRecord<Document>, database: State<'_, DatabaseState>) -> CommandResult<()> {
 	with_repository(&database, |repository| repository.update_document(&record))
+}
+
+#[tauri::command]
+pub fn create_manual_backup(destination: String, database: State<'_, DatabaseState>) -> CommandResult<()> {
+	let connection = database.0.lock().map_err(|_| "database connection is unavailable".to_owned())?;
+	crate::db::create_manual_backup(&connection, Path::new(&destination)).map_err(|error| error.to_string())
 }
 
 fn with_repository<T>(

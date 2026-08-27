@@ -1,6 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
+import { DatabaseBackup } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
 
-import { getCompany, listDocuments, saveCompany } from "./services/invoiceRepository";
+import { createManualBackup, getCompany, listDocuments, saveCompany } from "./services/invoiceRepository";
+import DocumentEditor from "./components/DocumentEditor";
 import type { CompanyInfo, StoredRecord } from "./types/invoice";
 import "./App.css";
 
@@ -20,6 +23,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
 
   useEffect(() => { void loadDashboard(); }, []);
 
@@ -53,13 +59,35 @@ function App() {
     } finally { setIsSaving(false); }
   }
 
+  async function handleCreateBackup() {
+    setBackupMessage(null);
+    setError(null);
+    const destination = await save({
+      defaultPath: `invoicemaker-backup-${new Date().toISOString().slice(0, 10)}.db`,
+      filters: [{ name: "SQLite database", extensions: ["db"] }],
+    });
+    if (!destination) return;
+
+    setIsBackingUp(true);
+    try {
+      await createManualBackup(destination);
+      setBackupMessage("Database backup created.");
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : "Unable to create database backup.");
+    } finally { setIsBackingUp(false); }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div><p className="eyebrow">Local ledger</p><h1>Invoice Maker</h1></div>
-        <button className="refresh-button" type="button" onClick={() => void loadDashboard()}>Refresh</button>
+        <div className="topbar-actions">
+          <button className="icon-button" type="button" aria-label="Create database backup" title="Create database backup" disabled={isBackingUp} onClick={() => void handleCreateBackup()}><DatabaseBackup aria-hidden="true" size={18} /></button>
+          <button className="refresh-button" type="button" onClick={() => void loadDashboard()}>Refresh</button>
+        </div>
       </header>
       {error && <p className="notice error" role="alert">{error}</p>}
+      {backupMessage && <p className="notice success" role="status">{backupMessage}</p>}
 
       <section className="company-section" aria-labelledby="company-heading">
         <div className="section-heading">
@@ -79,13 +107,14 @@ function App() {
       </section>
 
       <section className="documents-section" aria-labelledby="documents-heading">
-        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><span className="document-count">{documents.length} total</span></div>
+        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{documents.length} total</span><button className="primary-button" type="button" onClick={() => setIsEditorOpen(true)}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
           <div className="table-wrap"><table><thead><tr><th>Number</th><th>Type</th><th>Issue date</th><th>Status</th><th>Payment</th><th>Total</th></tr></thead><tbody>
             {documents.map(({ id, data }) => <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td>{data.paymentReceived ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</td><td>{formatMoney(data.totalCents, data.currency)}</td></tr>)}
           </tbody></table></div>
         )}
       </section>
+      {isEditorOpen && <DocumentEditor defaultCurrency={company.defaultCurrency} onClose={() => setIsEditorOpen(false)} onCreated={loadDashboard} />}
     </main>
   );
 }

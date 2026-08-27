@@ -43,6 +43,11 @@ pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, DatabaseError> {
 	open_and_migrate_at(&database_directory)
 }
 
+pub fn create_manual_backup(connection: &Connection, destination: &Path) -> Result<(), DatabaseError> {
+	connection.execute("VACUUM INTO ?1", [destination.to_string_lossy().as_ref()])?;
+	Ok(())
+}
+
 fn open_and_migrate_at(database_directory: &Path) -> Result<Connection, DatabaseError> {
 	fs::create_dir_all(database_directory).map_err(DatabaseError::FileSystem)?;
 	let database_path = database_directory.join("invoicemaker.db");
@@ -74,7 +79,7 @@ fn create_migration_backup(connection: &Connection, database_directory: &Path) -
 mod tests {
 	use std::fs;
 
-	use super::open_and_migrate_at;
+	use super::{create_manual_backup, open_and_migrate_at};
 
 	#[test]
 	fn opens_and_migrates_the_app_database() {
@@ -100,6 +105,34 @@ mod tests {
 				.starts_with("invoicemaker-before-migration-")));
 
 		drop(connection);
+		fs::remove_dir_all(directory).expect("remove test database directory");
+	}
+
+	#[test]
+	fn creates_a_consistent_standalone_database_backup() {
+		let directory = std::env::temp_dir().join(format!(
+			"invoicemaker-backup-test-{}",
+			std::process::id()
+		));
+		let _ = fs::remove_dir_all(&directory);
+		fs::create_dir_all(&directory).expect("create test directory");
+		let source_path = directory.join("source.db");
+		let backup_path = directory.join("backup.db");
+		let connection = rusqlite::Connection::open(&source_path).expect("open source database");
+		connection
+			.execute_batch("CREATE TABLE test_records (value TEXT); INSERT INTO test_records VALUES ('saved');")
+			.expect("create source data");
+
+		create_manual_backup(&connection, &backup_path).expect("create backup");
+		drop(connection);
+
+		let backup = rusqlite::Connection::open(backup_path).expect("open backup database");
+		let value: String = backup
+			.query_row("SELECT value FROM test_records", [], |row| row.get(0))
+			.expect("read backup data");
+		assert_eq!(value, "saved");
+
+		drop(backup);
 		fs::remove_dir_all(directory).expect("remove test database directory");
 	}
 }

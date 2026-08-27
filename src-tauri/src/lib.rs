@@ -17,6 +17,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let connection = db::open_and_migrate(app.handle())?;
@@ -33,6 +34,7 @@ pub fn run() {
             commands::get_document,
             commands::create_document,
             commands::update_document,
+            commands::create_manual_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
