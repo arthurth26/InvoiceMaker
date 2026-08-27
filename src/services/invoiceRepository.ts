@@ -18,6 +18,10 @@ export function saveClient(record: StoredRecord<Client>): Promise<void> {
   return invoke("save_client", { record });
 }
 
+export function replaceClient(record: StoredRecord<Client>): Promise<void> {
+  return invoke("replace_client", { record });
+}
+
 export function listDocuments(): Promise<StoredRecord<Document>[]> {
   return invoke("list_documents");
 }

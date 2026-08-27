@@ -2,11 +2,14 @@
 mod db;
 mod commands;
 
-use std::sync::Mutex;
+use std::{path::PathBuf, sync::Mutex};
 
 use tauri::Manager;
 
-pub struct DatabaseState(pub Mutex<rusqlite::Connection>);
+pub struct DatabaseState {
+    pub connection: Mutex<rusqlite::Connection>,
+    pub database_directory: PathBuf,
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -21,7 +24,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let connection = db::open_and_migrate(app.handle())?;
-            app.manage(DatabaseState(Mutex::new(connection)));
+            let database_directory = app.path().app_local_data_dir()?;
+            app.manage(DatabaseState { connection: Mutex::new(connection), database_directory });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -30,6 +34,7 @@ pub fn run() {
             commands::save_company,
             commands::list_clients,
             commands::save_client,
+            commands::replace_client,
             commands::list_documents,
             commands::get_document,
             commands::create_document,

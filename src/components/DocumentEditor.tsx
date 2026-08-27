@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
 
-import { createDocument, listClients, saveClient, updateDocument } from "../services/invoiceRepository";
+import { createDocument, listClients, replaceClient, saveClient, updateDocument } from "../services/invoiceRepository";
 import type { Client, Document, DocumentStatus, DocumentType, LineItem, StoredRecord } from "../types/invoice";
 
 interface DocumentEditorProps {
@@ -66,11 +67,28 @@ function DocumentEditor({ defaultCurrency, editingRecord, initialDocument, onClo
     };
     try {
       await saveClient(record);
-      setClients((current) => [...current, record]);
-      setClientId(id);
-      setNewClientName("");
-      setIsAddingClient(false);
-    } catch { setError("Unable to save the new client."); }
+    } catch (saveError) {
+      const isCrossKindCollision = saveError instanceof Error && saveError.message.includes("record ID belongs to another record type");
+      if (!isCrossKindCollision) { setError("Unable to save the new client."); return; }
+
+      const shouldReplace = await ask(
+        "This client ID belongs to a different record. Replacing it removes that record after creating a database backup.",
+        { kind: "warning", title: "Replace existing record" },
+      );
+      if (!shouldReplace) return;
+
+      try {
+        await replaceClient(record);
+      } catch {
+        setError("Unable to replace the existing record.");
+        return;
+      }
+    }
+
+    setClients((current) => [...current, record]);
+    setClientId(id);
+    setNewClientName("");
+    setIsAddingClient(false);
   }
 
   function updateLineItem(index: number, update: Partial<LineItem>) {

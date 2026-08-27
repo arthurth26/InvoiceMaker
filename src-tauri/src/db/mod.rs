@@ -48,6 +48,10 @@ pub fn create_manual_backup(connection: &Connection, destination: &Path) -> Resu
 	Ok(())
 }
 
+pub fn create_replacement_backup(connection: &Connection, database_directory: &Path) -> Result<PathBuf, DatabaseError> {
+	create_backup(connection, database_directory, "invoicemaker-before-replacement")
+}
+
 pub fn save_pdf(destination: &Path, contents: &[u8]) -> Result<(), DatabaseError> {
 	fs::write(destination, contents).map_err(DatabaseError::FileSystem)
 }
@@ -67,11 +71,15 @@ fn open_and_migrate_at(database_directory: &Path) -> Result<Connection, Database
 }
 
 fn create_migration_backup(connection: &Connection, database_directory: &Path) -> Result<PathBuf, DatabaseError> {
+	create_backup(connection, database_directory, "invoicemaker-before-migration")
+}
+
+fn create_backup(connection: &Connection, database_directory: &Path, prefix: &str) -> Result<PathBuf, DatabaseError> {
 	let timestamp = SystemTime::now()
 		.duration_since(UNIX_EPOCH)
 		.map_err(DatabaseError::SystemClock)?
 		.as_millis();
-	let backup_path = database_directory.join(format!("invoicemaker-before-migration-{timestamp}.db"));
+	let backup_path = database_directory.join(format!("{prefix}-{timestamp}.db"));
 	let mut backup_connection = Connection::open(&backup_path)?;
 	let backup = Backup::new(connection, &mut backup_connection)?;
 	backup.run_to_completion(5, std::time::Duration::from_millis(10), None)?;

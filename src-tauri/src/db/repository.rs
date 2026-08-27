@@ -18,6 +18,8 @@ pub enum RepositoryError {
 	InvalidRecordId,
 	InconsistentPaymentStatus,
 	InconsistentPaymentDate,
+	RecordIdConflict,
+	InvalidTotals,
 }
 
 impl fmt::Display for RepositoryError {
@@ -34,6 +36,8 @@ impl fmt::Display for RepositoryError {
 			Self::InconsistentPaymentDate => {
 				write!(formatter, "payment received date must match the payment received flag")
 			}
+			Self::RecordIdConflict => write!(formatter, "record ID belongs to another record type"),
+			Self::InvalidTotals => write!(formatter, "document totals do not match its line items"),
 		}
 	}
 }
@@ -78,19 +82,42 @@ impl<'connection> Repository<'connection> {
 		Ok(())
 	}
 
-	pub fn upsert_client(&self, record: &StoredRecord<Client>) -> RepositoryResult<()> {
+	pub fn upsert_client(&self, record: &StoredRecord<Client>, replace_existing: bool) -> RepositoryResult<()> {
 		if record.id != record.data.id || record.record_kind != RecordKind::Client {
 			return Err(RepositoryError::InvalidRecordId);
 		}
+		if self.has_cross_kind_id_collision(&record.id)? && !replace_existing {
+			return Err(RepositoryError::RecordIdConflict);
+		}
 
 		let data_json = serde_json::to_string(&record.data)?;
-		self.connection.execute(
-			"INSERT INTO records (id, record_kind, created_at, updated_at, data_json)
-			 VALUES (?1, 'client', ?2, ?3, ?4)
-			 ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json",
-			params![record.id, record.created_at, record.updated_at, data_json],
-		)?;
+		if replace_existing {
+			self.connection.execute(
+				"INSERT INTO records (id, record_kind, created_at, updated_at, data_json)
+				 VALUES (?1, 'client', ?2, ?3, ?4)
+				 ON CONFLICT(id) DO UPDATE SET record_kind = 'client', created_at = excluded.created_at,
+				 updated_at = excluded.updated_at, data_json = excluded.data_json, invoice_number = NULL,
+				 document_type = NULL, client_id = NULL, status = NULL, issue_date = NULL, due_date = NULL,
+				 currency = NULL, subtotal_cents = NULL, tax_amount_cents = NULL, total_cents = NULL,
+				 payment_received = NULL, payment_received_date = NULL",
+				params![record.id, record.created_at, record.updated_at, data_json],
+			)?;
+		} else {
+			self.connection.execute(
+				"INSERT INTO records (id, record_kind, created_at, updated_at, data_json)
+				 VALUES (?1, 'client', ?2, ?3, ?4)
+				 ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json",
+				params![record.id, record.created_at, record.updated_at, data_json],
+			)?;
+		}
 		Ok(())
+	}
+
+	pub fn has_cross_kind_id_collision(&self, id: &str) -> RepositoryResult<bool> {
+		let record_kind: Option<String> = self.connection
+			.query_row("SELECT record_kind FROM records WHERE id = ?1", [id], |row| row.get(0))
+			.optional()?;
+		Ok(record_kind.is_some_and(|kind| kind != "client"))
 	}
 
 	pub fn get_company(&self) -> RepositoryResult<Option<StoredRecord<CompanyInfo>>> {
@@ -230,8 +257,22 @@ impl<'connection> Repository<'connection> {
 		if record.data.payment_received != record.data.payment_received_date.is_some() {
 			return Err(RepositoryError::InconsistentPaymentDate);
 		}
+		let (subtotal_cents, tax_amount_cents, total_cents) = calculate_totals(&record.data);
+		if (record.data.subtotal_cents, record.data.tax_amount_cents, record.data.total_cents)
+			!= (subtotal_cents, tax_amount_cents, total_cents) {
+			return Err(RepositoryError::InvalidTotals);
+		}
 		Ok(())
 	}
+}
+
+fn calculate_totals(document: &Document) -> (i64, i64, i64) {
+	let (subtotal_cents, tax_amount_cents) = document.line_items.iter().fold((0, 0), |(subtotal, tax), item| {
+		let line_total = (item.quantity_milliunits * item.unit_price_cents + 500) / 1_000 - item.discount_cents;
+		let line_tax = (line_total * i64::from(item.tax_rate_basis_points) + 5_000) / 10_000;
+		(subtotal + line_total, tax + line_tax)
+	});
+	(subtotal_cents, tax_amount_cents, subtotal_cents + tax_amount_cents)
 }
 
 fn record_from_row<T: DeserializeOwned>(row: &Row<'_>, record_kind: RecordKind) -> rusqlite::Result<StoredRecord<T>> {
@@ -285,7 +326,7 @@ mod tests {
 
 	use crate::db::{
 		migrations::migrate,
-		models::{Document, DocumentStatus, DocumentType, RecordKind, StoredRecord},
+		models::{Client, CompanyInfo, Document, DocumentStatus, DocumentType, RecordKind, StoredRecord},
 	};
 
 	use super::{Repository, RepositoryError};
@@ -306,9 +347,9 @@ mod tests {
 				due_date: None,
 				currency: "USD".to_owned(),
 				line_items: Vec::new(),
-				subtotal_cents: 1_000,
-				tax_amount_cents: 100,
-				total_cents: 1_100,
+				subtotal_cents: 0,
+				tax_amount_cents: 0,
+				total_cents: 0,
 				payment_received,
 				payment_received_date: Some("2026-08-26".to_owned()),
 				attachments: Vec::new(),
@@ -374,5 +415,45 @@ mod tests {
 				.expect_err("inconsistent payment date should be rejected");
 			assert!(matches!(error, RepositoryError::InconsistentPaymentDate));
 		}
+	}
+
+	#[test]
+	fn rejects_totals_that_do_not_match_line_items() {
+		let mut connection = Connection::open_in_memory().expect("open in-memory database");
+		migrate(&mut connection).expect("apply migration");
+		let repository = Repository::new(&connection);
+		let mut record = document_record(DocumentStatus::Draft, false);
+		record.data.total_cents = 1;
+		record.data.payment_received_date = None;
+
+		let error = repository.create_document(&record).expect_err("reject invalid totals");
+
+		assert!(matches!(error, RepositoryError::InvalidTotals));
+	}
+
+	#[test]
+	fn rejects_cross_kind_client_id_collision_without_replacement() {
+		let mut connection = Connection::open_in_memory().expect("open in-memory database");
+		migrate(&mut connection).expect("apply migration");
+		let repository = Repository::new(&connection);
+		repository.upsert_company(&StoredRecord {
+			id: "company".to_owned(),
+			record_kind: RecordKind::Company,
+			created_at: "2026-08-28T00:00:00Z".to_owned(),
+			updated_at: "2026-08-28T00:00:00Z".to_owned(),
+			data: CompanyInfo {
+				name: "Company".to_owned(), address: String::new(), email: String::new(), phone: String::new(),
+				tax_id: String::new(), logo_path: None, default_currency: "USD".to_owned(), output_directory: String::new(),
+			},
+		}).expect("save company");
+		let client = StoredRecord {
+			id: "company".to_owned(), record_kind: RecordKind::Client,
+			created_at: "2026-08-28T00:00:00Z".to_owned(), updated_at: "2026-08-28T00:00:00Z".to_owned(),
+			data: Client { id: "company".to_owned(), name: "Client".to_owned(), address: String::new(), email: String::new(), phone: String::new(), tax_id: None },
+		};
+
+		let error = repository.upsert_client(&client, false).expect_err("reject cross-kind collision");
+
+		assert!(matches!(error, RepositoryError::RecordIdConflict));
 	}
 }

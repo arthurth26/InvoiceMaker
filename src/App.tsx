@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { ComponentProps } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { Copy, DatabaseBackup, FileDown, Pencil } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -17,6 +18,8 @@ const defaultCompany: CompanyInfo = {
 function formatMoney(amountCents: number, currency: string) {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amountCents / 100);
 }
+
+type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
 function nextDuplicateNumber(invoiceNumber: string, documents: StoredRecord<Document>[]) {
   const match = /^(.*?)(?:-(\d{2}))?$/.exec(invoiceNumber);
@@ -63,7 +66,7 @@ function App() {
     } finally { setIsLoading(false); }
   }
 
-  async function handleSaveCompany(event: FormEvent<HTMLFormElement>) {
+  const handleSaveCompany: FormSubmitHandler = async (event) => {
     event.preventDefault();
     setIsSaving(true);
     setError(null);
@@ -78,7 +81,7 @@ function App() {
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save company details.");
     } finally { setIsSaving(false); }
-  }
+  };
 
   async function handleCreateBackup() {
     setSuccessMessage(null);
