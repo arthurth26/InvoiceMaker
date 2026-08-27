@@ -46,9 +46,10 @@ pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, DatabaseError> {
 fn open_and_migrate_at(database_directory: &Path) -> Result<Connection, DatabaseError> {
 	fs::create_dir_all(database_directory).map_err(DatabaseError::FileSystem)?;
 	let database_path = database_directory.join("invoicemaker.db");
+	let database_already_exists = database_path.exists();
 	let mut connection = Connection::open(&database_path)?;
 
-	if migrations::has_pending_migrations(&connection)? && database_path.exists() {
+	if database_already_exists && migrations::has_pending_migrations(&connection)? {
 		create_migration_backup(&connection, database_directory)?;
 	}
 
@@ -90,6 +91,13 @@ mod tests {
 
 		assert_eq!(version, 1);
 		assert!(directory.join("invoicemaker.db").exists());
+		assert!(fs::read_dir(&directory)
+			.expect("read test database directory")
+			.all(|entry| !entry
+				.expect("read test database entry")
+				.file_name()
+				.to_string_lossy()
+				.starts_with("invoicemaker-before-migration-")));
 
 		drop(connection);
 		fs::remove_dir_all(directory).expect("remove test database directory");

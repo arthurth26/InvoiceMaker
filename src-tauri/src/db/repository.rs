@@ -17,6 +17,7 @@ pub enum RepositoryError {
 	PaidDocumentLocked,
 	InvalidRecordId,
 	InconsistentPaymentStatus,
+	InconsistentPaymentDate,
 }
 
 impl fmt::Display for RepositoryError {
@@ -29,6 +30,9 @@ impl fmt::Display for RepositoryError {
 			Self::InvalidRecordId => write!(formatter, "record ID does not match its data"),
 			Self::InconsistentPaymentStatus => {
 				write!(formatter, "paid status must match the payment received flag")
+			}
+			Self::InconsistentPaymentDate => {
+				write!(formatter, "payment received date must match the payment received flag")
 			}
 		}
 	}
@@ -223,6 +227,9 @@ impl<'connection> Repository<'connection> {
 		if (record.data.status == DocumentStatus::Paid) != record.data.payment_received {
 			return Err(RepositoryError::InconsistentPaymentStatus);
 		}
+		if record.data.payment_received != record.data.payment_received_date.is_some() {
+			return Err(RepositoryError::InconsistentPaymentDate);
+		}
 		Ok(())
 	}
 }
@@ -348,6 +355,24 @@ mod tests {
 				.create_document(&record)
 				.expect_err("inconsistent payment status should be rejected");
 			assert!(matches!(error, RepositoryError::InconsistentPaymentStatus));
+		}
+	}
+
+	#[test]
+	fn rejects_payment_dates_that_do_not_match_payment_state() {
+		let mut connection = Connection::open_in_memory().expect("open in-memory database");
+		migrate(&mut connection).expect("apply migration");
+		let repository = Repository::new(&connection);
+
+		let mut unpaid_with_date = document_record(DocumentStatus::Draft, false);
+		let mut paid_without_date = document_record(DocumentStatus::Paid, true);
+		paid_without_date.data.payment_received_date = None;
+
+		for record in [&mut unpaid_with_date, &mut paid_without_date] {
+			let error = repository
+				.create_document(record)
+				.expect_err("inconsistent payment date should be rejected");
+			assert!(matches!(error, RepositoryError::InconsistentPaymentDate));
 		}
 	}
 }
