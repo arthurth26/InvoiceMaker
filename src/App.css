@@ -39,6 +39,8 @@ table { width: 100%; border-collapse: collapse; min-width: 700px; }
 th, td { border-bottom: 1px solid #c5c7b9; padding: 13px 10px; text-align: left; }
 th { color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 12px; letter-spacing: 0; text-transform: uppercase; }
 td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.actions-cell { width: 52px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .status { display: inline-block; border-radius: 3px; padding: 3px 7px; background: #e0e4d2; color: #38452d; font-family: "Trebuchet MS", sans-serif; font-size: 12px; }
 .status.paid { background: #cde0c4; color: #245328; }
 .status.draft { background: #ded9ca; color: #5e5849; }

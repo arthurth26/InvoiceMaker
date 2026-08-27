@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
-import { DatabaseBackup } from "lucide-react";
+import { pdf } from "@react-pdf/renderer";
+import { DatabaseBackup, FileDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 
-import { createManualBackup, getCompany, listDocuments, saveCompany } from "./services/invoiceRepository";
+import { createManualBackup, getCompany, listClients, listDocuments, saveCompany, savePdf } from "./services/invoiceRepository";
 import DocumentEditor from "./components/DocumentEditor";
-import type { CompanyInfo, StoredRecord } from "./types/invoice";
+import InvoicePdf from "./components/InvoicePdf";
+import type { Client, CompanyInfo, Document, StoredRecord } from "./types/invoice";
 import "./App.css";
 
 const defaultCompany: CompanyInfo = {
@@ -20,12 +22,14 @@ function App() {
   const [companyRecord, setCompanyRecord] = useState<StoredRecord<CompanyInfo> | null>(null);
   const [company, setCompany] = useState(defaultCompany);
   const [documents, setDocuments] = useState<Awaited<ReturnType<typeof listDocuments>>>([]);
+  const [clients, setClients] = useState<StoredRecord<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
-  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [savingPdfId, setSavingPdfId] = useState<string | null>(null);
 
   useEffect(() => { void loadDashboard(); }, []);
 
@@ -33,10 +37,11 @@ function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const [savedCompany, savedDocuments] = await Promise.all([getCompany(), listDocuments()]);
+      const [savedCompany, savedDocuments, savedClients] = await Promise.all([getCompany(), listDocuments(), listClients()]);
       setCompanyRecord(savedCompany);
       setCompany(savedCompany?.data ?? defaultCompany);
       setDocuments(savedDocuments);
+      setClients(savedClients);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load local records.");
     } finally { setIsLoading(false); }
@@ -60,7 +65,7 @@ function App() {
   }
 
   async function handleCreateBackup() {
-    setBackupMessage(null);
+    setSuccessMessage(null);
     setError(null);
     const destination = await save({
       defaultPath: `invoicemaker-backup-${new Date().toISOString().slice(0, 10)}.db`,
@@ -71,10 +76,31 @@ function App() {
     setIsBackingUp(true);
     try {
       await createManualBackup(destination);
-      setBackupMessage("Database backup created.");
+      setSuccessMessage("Database backup created.");
     } catch (backupError) {
       setError(backupError instanceof Error ? backupError.message : "Unable to create database backup.");
     } finally { setIsBackingUp(false); }
+  }
+
+  async function handleSavePdf(document: Document) {
+    setSuccessMessage(null);
+    setError(null);
+    const destination = await save({
+      defaultPath: `${document.invoiceNumber}.pdf`,
+      filters: [{ name: "PDF document", extensions: ["pdf"] }],
+    });
+    if (!destination) return;
+
+    setSavingPdfId(document.id);
+    try {
+      const client = clients.find((record) => record.id === document.clientId)?.data ?? null;
+      const blob = await pdf(<InvoicePdf company={company} client={client} document={document} />).toBlob();
+      const contents = Array.from(new Uint8Array(await blob.arrayBuffer()));
+      await savePdf(destination, contents);
+      setSuccessMessage(`${document.invoiceNumber} saved as a PDF.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save PDF.");
+    } finally { setSavingPdfId(null); }
   }
 
   return (
@@ -87,7 +113,7 @@ function App() {
         </div>
       </header>
       {error && <p className="notice error" role="alert">{error}</p>}
-      {backupMessage && <p className="notice success" role="status">{backupMessage}</p>}
+      {successMessage && <p className="notice success" role="status">{successMessage}</p>}
 
       <section className="company-section" aria-labelledby="company-heading">
         <div className="section-heading">
@@ -109,8 +135,8 @@ function App() {
       <section className="documents-section" aria-labelledby="documents-heading">
         <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{documents.length} total</span><button className="primary-button" type="button" onClick={() => setIsEditorOpen(true)}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
-          <div className="table-wrap"><table><thead><tr><th>Number</th><th>Type</th><th>Issue date</th><th>Status</th><th>Payment</th><th>Total</th></tr></thead><tbody>
-            {documents.map(({ id, data }) => <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td>{data.paymentReceived ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</td><td>{formatMoney(data.totalCents, data.currency)}</td></tr>)}
+          <div className="table-wrap"><table><thead><tr><th>Number</th><th>Type</th><th>Issue date</th><th>Status</th><th>Payment</th><th>Total</th><th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
+            {documents.map(({ id, data }) => <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td>{data.paymentReceived ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button></td></tr>)}
           </tbody></table></div>
         )}
       </section>

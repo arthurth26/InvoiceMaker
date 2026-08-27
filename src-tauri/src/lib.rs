@@ -35,6 +35,7 @@ pub fn run() {
             commands::create_document,
             commands::update_document,
             commands::create_manual_backup,
+            commands::save_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

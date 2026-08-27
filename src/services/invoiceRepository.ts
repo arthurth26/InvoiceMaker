@@ -37,3 +37,7 @@ export function updateDocument(record: StoredRecord<Document>): Promise<void> {
 export function createManualBackup(destination: string): Promise<void> {
   return invoke("create_manual_backup", { destination });
 }
+
+export function savePdf(destination: string, contents: number[]): Promise<void> {
+  return invoke("save_pdf", { destination, contents });
+}

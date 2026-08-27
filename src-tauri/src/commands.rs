@@ -58,6 +58,11 @@ pub fn create_manual_backup(destination: String, database: State<'_, DatabaseSta
 	crate::db::create_manual_backup(&connection, Path::new(&destination)).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub fn save_pdf(destination: String, contents: Vec<u8>) -> CommandResult<()> {
+	crate::db::save_pdf(Path::new(&destination), &contents).map_err(|error| error.to_string())
+}
+
 fn with_repository<T>(
 	database: &State<'_, DatabaseState>,
 	operation: impl FnOnce(&Repository<'_>) -> crate::db::repository::RepositoryResult<T>,

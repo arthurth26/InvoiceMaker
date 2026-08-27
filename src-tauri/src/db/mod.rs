@@ -48,6 +48,10 @@ pub fn create_manual_backup(connection: &Connection, destination: &Path) -> Resu
 	Ok(())
 }
 
+pub fn save_pdf(destination: &Path, contents: &[u8]) -> Result<(), DatabaseError> {
+	fs::write(destination, contents).map_err(DatabaseError::FileSystem)
+}
+
 fn open_and_migrate_at(database_directory: &Path) -> Result<Connection, DatabaseError> {
 	fs::create_dir_all(database_directory).map_err(DatabaseError::FileSystem)?;
 	let database_path = database_directory.join("invoicemaker.db");
@@ -79,7 +83,7 @@ fn create_migration_backup(connection: &Connection, database_directory: &Path) -
 mod tests {
 	use std::fs;
 
-	use super::{create_manual_backup, open_and_migrate_at};
+	use super::{create_manual_backup, open_and_migrate_at, save_pdf};
 
 	#[test]
 	fn opens_and_migrates_the_app_database() {
@@ -134,6 +138,17 @@ mod tests {
 
 		drop(backup);
 		fs::remove_dir_all(directory).expect("remove test database directory");
+	}
+
+	#[test]
+	fn writes_pdf_contents_to_the_selected_destination() {
+		let path = std::env::temp_dir().join(format!("invoicemaker-pdf-test-{}.pdf", std::process::id()));
+		let _ = fs::remove_file(&path);
+
+		save_pdf(&path, b"%PDF-test").expect("write PDF");
+
+		assert_eq!(fs::read(&path).expect("read PDF"), b"%PDF-test");
+		fs::remove_file(path).expect("remove test PDF");
 	}
 }
 
