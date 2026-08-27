@@ -1,6 +1,7 @@
 use std::fmt;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use serde::de::DeserializeOwned;
 
 use super::models::{
 	Client, CompanyInfo, Document, DocumentStatus, DocumentType, RecordKind, StoredRecord,
@@ -59,7 +60,7 @@ impl<'connection> Repository<'connection> {
 	}
 
 	pub fn upsert_company(&self, record: &StoredRecord<CompanyInfo>) -> RepositoryResult<()> {
-		if record.id != COMPANY_RECORD_ID {
+		if record.id != COMPANY_RECORD_ID || record.record_kind != RecordKind::Company {
 			return Err(RepositoryError::InvalidRecordId);
 		}
 
@@ -74,7 +75,7 @@ impl<'connection> Repository<'connection> {
 	}
 
 	pub fn upsert_client(&self, record: &StoredRecord<Client>) -> RepositoryResult<()> {
-		if record.id != record.data.id {
+		if record.id != record.data.id || record.record_kind != RecordKind::Client {
 			return Err(RepositoryError::InvalidRecordId);
 		}
 
@@ -86,6 +87,14 @@ impl<'connection> Repository<'connection> {
 			params![record.id, record.created_at, record.updated_at, data_json],
 		)?;
 		Ok(())
+	}
+
+	pub fn get_company(&self) -> RepositoryResult<Option<StoredRecord<CompanyInfo>>> {
+		self.get_record(COMPANY_RECORD_ID, "company", RecordKind::Company)
+	}
+
+	pub fn list_clients(&self) -> RepositoryResult<Vec<StoredRecord<Client>>> {
+		self.list_records("client", RecordKind::Client, "ORDER BY json_extract(data_json, '$.name') COLLATE NOCASE")
 	}
 
 	pub fn create_document(&self, record: &StoredRecord<Document>) -> RepositoryResult<()> {
@@ -169,32 +178,42 @@ impl<'connection> Repository<'connection> {
 	}
 
 	pub fn get_document(&self, id: &str) -> RepositoryResult<Option<StoredRecord<Document>>> {
+		self.get_record(id, "document", RecordKind::Document)
+	}
+
+	pub fn list_documents(&self) -> RepositoryResult<Vec<StoredRecord<Document>>> {
+		self.list_records("document", RecordKind::Document, "ORDER BY issue_date DESC, invoice_number DESC")
+	}
+
+	fn get_record<T: DeserializeOwned>(
+		&self,
+		id: &str,
+		record_kind: &str,
+		kind: RecordKind,
+	) -> RepositoryResult<Option<StoredRecord<T>>> {
 		let record = self
 			.connection
 			.query_row(
-				"SELECT id, created_at, updated_at, data_json
-				 FROM records WHERE id = ?1 AND record_kind = 'document'",
-				[id],
-				|row| {
-					let data_json: String = row.get(3)?;
-					let data = serde_json::from_str(&data_json).map_err(|error| {
-						rusqlite::Error::FromSqlConversionFailure(
-							3,
-							rusqlite::types::Type::Text,
-							Box::new(error),
-						)
-					})?;
-					Ok(StoredRecord {
-						id: row.get(0)?,
-						record_kind: RecordKind::Document,
-						created_at: row.get(1)?,
-						updated_at: row.get(2)?,
-						data,
-					})
-				},
+				"SELECT id, created_at, updated_at, data_json FROM records WHERE id = ?1 AND record_kind = ?2",
+				params![id, record_kind],
+				|row| record_from_row(row, kind),
 			)
 			.optional()?;
 		Ok(record)
+	}
+
+	fn list_records<T: DeserializeOwned>(
+		&self,
+		record_kind: &str,
+		kind: RecordKind,
+		order_by: &str,
+	) -> RepositoryResult<Vec<StoredRecord<T>>> {
+		let sql = format!("SELECT id, created_at, updated_at, data_json FROM records WHERE record_kind = ?1 {order_by}");
+		let mut statement = self.connection.prepare(&sql)?;
+		let records = statement
+			.query_map([record_kind], |row| record_from_row(row, kind))?
+			.collect::<Result<Vec<_>, _>>()?;
+		Ok(records)
 	}
 
 	fn validate_document(&self, record: &StoredRecord<Document>) -> RepositoryResult<()> {
@@ -206,6 +225,21 @@ impl<'connection> Repository<'connection> {
 		}
 		Ok(())
 	}
+}
+
+fn record_from_row<T: DeserializeOwned>(row: &Row<'_>, record_kind: RecordKind) -> rusqlite::Result<StoredRecord<T>> {
+	let data_json: String = row.get(3)?;
+	let data = serde_json::from_str(&data_json).map_err(|error| {
+		rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error))
+	})?;
+
+	Ok(StoredRecord {
+		id: row.get(0)?,
+		record_kind,
+		created_at: row.get(1)?,
+		updated_at: row.get(2)?,
+		data,
+	})
 }
 
 struct DocumentColumns {

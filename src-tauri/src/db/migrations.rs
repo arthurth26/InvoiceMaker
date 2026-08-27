@@ -51,7 +51,7 @@ const MIGRATIONS: &[Migration] = &[Migration {
 }];
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
-	let current_version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+	let current_version = current_version(connection)?;
 
 	if current_version > MIGRATIONS.len() as u32 {
 		return Err(rusqlite::Error::InvalidQuery);
@@ -65,6 +65,18 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+pub fn has_pending_migrations(connection: &Connection) -> Result<bool> {
+	Ok(current_version(connection)? < MIGRATIONS.len() as u32)
+}
+
+fn current_version(connection: &Connection) -> Result<u32> {
+	let current_version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+	if current_version > MIGRATIONS.len() as u32 {
+		return Err(rusqlite::Error::InvalidQuery);
+	}
+	Ok(current_version)
 }
 
 #[cfg(test)]
