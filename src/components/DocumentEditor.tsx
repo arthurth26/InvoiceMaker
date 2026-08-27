@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
 
-import { createDocument, listClients, saveClient } from "../services/invoiceRepository";
-import type { Client, Document, DocumentType, LineItem, StoredRecord } from "../types/invoice";
+import { createDocument, listClients, saveClient, updateDocument } from "../services/invoiceRepository";
+import type { Client, Document, DocumentStatus, DocumentType, LineItem, StoredRecord } from "../types/invoice";
 
 interface DocumentEditorProps {
   defaultCurrency: string;
+  editingRecord?: StoredRecord<Document>;
+  initialDocument?: Document;
   onClose: () => void;
-  onCreated: () => Promise<void>;
+  onSaved: () => Promise<void>;
 }
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
@@ -24,18 +26,27 @@ function centsFromInput(value: string) {
   return Math.round((Number(value) || 0) * 100);
 }
 
-function DocumentEditor({ defaultCurrency, onClose, onCreated }: DocumentEditorProps) {
+function initialRevision(invoiceNumber: string) {
+  return /-\d{2}$/.test(invoiceNumber) ? invoiceNumber : `${invoiceNumber}-00`;
+}
+
+function DocumentEditor({ defaultCurrency, editingRecord, initialDocument, onClose, onSaved }: DocumentEditorProps) {
+  const sourceDocument = editingRecord?.data ?? initialDocument;
+  const isEditing = Boolean(editingRecord);
   const [clients, setClients] = useState<StoredRecord<Client>[]>([]);
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(sourceDocument?.clientId ?? "");
   const [isAddingClient, setIsAddingClient] = useState(false);
   const [newClientName, setNewClientName] = useState("");
-  const [documentType, setDocumentType] = useState<DocumentType>("invoice");
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState("");
-  const [currency, setCurrency] = useState(defaultCurrency);
-  const [notes, setNotes] = useState("");
-  const [lineItems, setLineItems] = useState<LineItem[]>([emptyLineItem()]);
+  const [documentType, setDocumentType] = useState<DocumentType>(sourceDocument?.documentType ?? "invoice");
+  const [invoiceNumber, setInvoiceNumber] = useState(sourceDocument?.invoiceNumber ?? "");
+  const [issueDate, setIssueDate] = useState(sourceDocument?.issueDate ?? new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(sourceDocument?.dueDate ?? "");
+  const [currency, setCurrency] = useState(sourceDocument?.currency ?? defaultCurrency);
+  const [status, setStatus] = useState<DocumentStatus>(sourceDocument?.status ?? "draft");
+  const [paymentReceived, setPaymentReceived] = useState(sourceDocument?.paymentReceived ?? false);
+  const [paymentReceivedDate, setPaymentReceivedDate] = useState(sourceDocument?.paymentReceivedDate ?? "");
+  const [notes, setNotes] = useState(sourceDocument?.notes ?? "");
+  const [lineItems, setLineItems] = useState<LineItem[]>(sourceDocument?.lineItems ?? [emptyLineItem()]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -78,15 +89,22 @@ function DocumentEditor({ defaultCurrency, onClose, onCreated }: DocumentEditorP
     setIsSaving(true);
     setError(null);
     const timestamp = new Date().toISOString();
-    const id = crypto.randomUUID();
+    const id = editingRecord?.id ?? crypto.randomUUID();
+    const effectiveStatus = paymentReceived ? "paid" : status === "paid" ? "invoiced" : status;
+    const persistedInvoiceNumber = isEditing || initialDocument ? invoiceNumber.trim() : initialRevision(invoiceNumber.trim());
     const data: Document = {
-      id, invoiceNumber: invoiceNumber.trim(), documentType, clientId, status: "draft", issueDate,
+      id, invoiceNumber: persistedInvoiceNumber, documentType, clientId, status: effectiveStatus, issueDate,
       dueDate: dueDate || null, currency, lineItems, subtotalCents, taxAmountCents, totalCents,
-      paymentReceived: false, paymentReceivedDate: null, attachments: [], notes: notes || null,
+      paymentReceived, paymentReceivedDate: paymentReceived ? paymentReceivedDate || issueDate : null,
+      attachments: sourceDocument?.attachments ?? [], notes: notes || null,
     };
     try {
-      await createDocument({ id, recordKind: "document", createdAt: timestamp, updatedAt: timestamp, data });
-      await onCreated();
+      const record: StoredRecord<Document> = {
+        id, recordKind: "document", createdAt: editingRecord?.createdAt ?? timestamp, updatedAt: timestamp, data,
+      };
+      if (isEditing) await updateDocument(record);
+      else await createDocument(record);
+      await onSaved();
       onClose();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save the document.");
@@ -95,7 +113,7 @@ function DocumentEditor({ defaultCurrency, onClose, onCreated }: DocumentEditorP
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
     <section className="editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title" onMouseDown={(event) => event.stopPropagation()}>
-      <header className="editor-header"><div><p className="eyebrow">New document</p><h2 id="editor-title">Invoice or quote</h2></div><button className="close-button" type="button" aria-label="Close editor" onClick={onClose}>X</button></header>
+      <header className="editor-header"><div><p className="eyebrow">{isEditing ? "Edit document" : initialDocument ? "Duplicate document" : "New document"}</p><h2 id="editor-title">Invoice or quote</h2></div><button className="close-button" type="button" aria-label="Close editor" onClick={onClose}>X</button></header>
       <form onSubmit={saveDocument}>
         {error && <p className="notice error" role="alert">{error}</p>}
         <div className="editor-grid">
@@ -107,6 +125,9 @@ function DocumentEditor({ defaultCurrency, onClose, onCreated }: DocumentEditorP
           <label>Issue date<input required type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} /></label>
           <label>Due date<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           <label>Currency<select value={currency} onChange={(event) => setCurrency(event.target.value)}><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label>
+          <label>Status<select value={paymentReceived ? "paid" : status} disabled={paymentReceived} onChange={(event) => setStatus(event.target.value as DocumentStatus)}><option value="draft">Draft</option><option value="sent">Sent</option><option value="accepted">Accepted</option><option value="invoiced">Invoiced</option></select></label>
+          <label className="payment-toggle"><input type="checkbox" checked={paymentReceived} onChange={(event) => { const received = event.target.checked; setPaymentReceived(received); if (received) setPaymentReceivedDate((current) => current || new Date().toISOString().slice(0, 10)); }} />Payment received</label>
+          {paymentReceived && <label>Payment date<input required type="date" value={paymentReceivedDate} onChange={(event) => setPaymentReceivedDate(event.target.value)} /></label>}
         </div>
         <div className="line-items"><div className="line-items-heading"><h3>Line items</h3><button className="link-button" type="button" onClick={() => setLineItems((current) => [...current, emptyLineItem()])}>Add line</button></div>
           {lineItems.map((item, index) => <div className="line-item" key={index}>
@@ -118,7 +139,7 @@ function DocumentEditor({ defaultCurrency, onClose, onCreated }: DocumentEditorP
           </div>)}
         </div>
         <label className="notes-field">Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-        <div className="editor-footer"><dl><div><dt>Subtotal</dt><dd>{(subtotalCents / 100).toFixed(2)} {currency}</dd></div><div><dt>Tax</dt><dd>{(taxAmountCents / 100).toFixed(2)} {currency}</dd></div><div><dt>Total</dt><dd>{(totalCents / 100).toFixed(2)} {currency}</dd></div></dl><button className="primary-button" disabled={isSaving} type="submit">{isSaving ? "Saving..." : `Save ${documentType}`}</button></div>
+        <div className="editor-footer"><dl><div><dt>Subtotal</dt><dd>{(subtotalCents / 100).toFixed(2)} {currency}</dd></div><div><dt>Tax</dt><dd>{(taxAmountCents / 100).toFixed(2)} {currency}</dd></div><div><dt>Total</dt><dd>{(totalCents / 100).toFixed(2)} {currency}</dd></div></dl><button className="primary-button" disabled={isSaving} type="submit">{isSaving ? "Saving..." : isEditing ? "Save changes" : `Save ${documentType}`}</button></div>
       </form>
     </section>
   </div>;

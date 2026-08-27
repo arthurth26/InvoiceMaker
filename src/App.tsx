@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
-import { DatabaseBackup, FileDown } from "lucide-react";
+import { Copy, DatabaseBackup, FileDown, Pencil } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 
-import { createManualBackup, getCompany, listClients, listDocuments, saveCompany, savePdf } from "./services/invoiceRepository";
+import { createManualBackup, getCompany, listClients, listDocuments, saveCompany, savePdf, updateDocument } from "./services/invoiceRepository";
 import DocumentEditor from "./components/DocumentEditor";
 import InvoicePdf from "./components/InvoicePdf";
 import type { Client, CompanyInfo, Document, StoredRecord } from "./types/invoice";
@@ -18,6 +18,19 @@ function formatMoney(amountCents: number, currency: string) {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amountCents / 100);
 }
 
+function nextDuplicateNumber(invoiceNumber: string, documents: StoredRecord<Document>[]) {
+  const match = /^(.*?)(?:-(\d{2}))?$/.exec(invoiceNumber);
+  const baseNumber = match?.[1] || invoiceNumber;
+  const revisionPattern = new RegExp(`^${baseNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d{2})$`);
+  let latestRevision = documents.some((record) => record.data.invoiceNumber === baseNumber) ? 0 : -1;
+
+  for (const record of documents) {
+    const revisionMatch = revisionPattern.exec(record.data.invoiceNumber);
+    if (revisionMatch) latestRevision = Math.max(latestRevision, Number(revisionMatch[1]));
+  }
+  return `${baseNumber}-${String(latestRevision + 1).padStart(2, "0")}`;
+}
+
 function App() {
   const [companyRecord, setCompanyRecord] = useState<StoredRecord<CompanyInfo> | null>(null);
   const [company, setCompany] = useState(defaultCompany);
@@ -30,6 +43,9 @@ function App() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingPdfId, setSavingPdfId] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<StoredRecord<Document> | null>(null);
+  const [duplicateDocument, setDuplicateDocument] = useState<Document | null>(null);
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null);
 
   useEffect(() => { void loadDashboard(); }, []);
 
@@ -103,6 +119,62 @@ function App() {
     } finally { setSavingPdfId(null); }
   }
 
+  function openNewDocument() {
+    setEditingRecord(null);
+    setDuplicateDocument(null);
+    setIsEditorOpen(true);
+  }
+
+  function openDocumentEditor(record: StoredRecord<Document>) {
+    setDuplicateDocument(null);
+    setEditingRecord(record);
+    setIsEditorOpen(true);
+  }
+
+  function duplicateDocumentRecord(record: StoredRecord<Document>) {
+    const data = record.data;
+    setEditingRecord(null);
+    setDuplicateDocument({
+      ...data,
+      invoiceNumber: nextDuplicateNumber(data.invoiceNumber, documents),
+      status: "draft",
+      paymentReceived: false,
+      paymentReceivedDate: null,
+      attachments: [],
+      lineItems: data.lineItems.map((item) => ({ ...item })),
+    });
+    setIsEditorOpen(true);
+  }
+
+  async function markDocumentPaid(record: StoredRecord<Document>) {
+    const timestamp = new Date().toISOString();
+    setError(null);
+    setSuccessMessage(null);
+    setUpdatingPaymentId(record.id);
+    try {
+      await updateDocument({
+        ...record,
+        updatedAt: timestamp,
+        data: {
+          ...record.data,
+          status: "paid",
+          paymentReceived: true,
+          paymentReceivedDate: timestamp.slice(0, 10),
+        },
+      });
+      await loadDashboard();
+      setSuccessMessage(`${record.data.invoiceNumber} marked as paid.`);
+    } catch (paymentError) {
+      setError(paymentError instanceof Error ? paymentError.message : "Unable to mark document as paid.");
+    } finally { setUpdatingPaymentId(null); }
+  }
+
+  function closeEditor() {
+    setIsEditorOpen(false);
+    setEditingRecord(null);
+    setDuplicateDocument(null);
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -133,14 +205,14 @@ function App() {
       </section>
 
       <section className="documents-section" aria-labelledby="documents-heading">
-        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{documents.length} total</span><button className="primary-button" type="button" onClick={() => setIsEditorOpen(true)}>New document</button></div></div>
+        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{documents.length} total</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
           <div className="table-wrap"><table><thead><tr><th>Number</th><th>Type</th><th>Issue date</th><th>Status</th><th>Payment</th><th>Total</th><th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
-            {documents.map(({ id, data }) => <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td>{data.paymentReceived ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button></td></tr>)}
+            {documents.map((record) => { const { id, data } = record; const isPaid = data.paymentReceived; return <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td><label className="payment-checkbox" title={isPaid ? "Paid documents are locked" : "Mark as paid"}><input type="checkbox" checked={isPaid} disabled={isPaid || updatingPaymentId === id} onChange={() => void markDocumentPaid(record)} /><span>{isPaid ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</span></label></td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={`Edit ${data.invoiceNumber}`} title={isPaid ? "Paid documents cannot be edited" : "Edit document"} disabled={isPaid} onClick={() => openDocumentEditor(record)}><Pencil aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Duplicate ${data.invoiceNumber}`} title="Duplicate document" onClick={() => duplicateDocumentRecord(record)}><Copy aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button></div></td></tr>; })}
           </tbody></table></div>
         )}
       </section>
-      {isEditorOpen && <DocumentEditor defaultCurrency={company.defaultCurrency} onClose={() => setIsEditorOpen(false)} onCreated={loadDashboard} />}
+      {isEditorOpen && <DocumentEditor key={editingRecord?.id ?? duplicateDocument?.invoiceNumber ?? "new"} defaultCurrency={company.defaultCurrency} editingRecord={editingRecord ?? undefined} initialDocument={duplicateDocument ?? undefined} onClose={closeEditor} onSaved={loadDashboard} />}
     </main>
   );
 }
