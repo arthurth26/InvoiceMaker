@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
 import { pdf } from "@react-pdf/renderer";
-import { ArrowDownAZ, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, Trash2 } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, Trash2 } from "lucide-react";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 
 import { createManualBackup, deleteDocument, getCompany, listClients, listDocuments, openProof, saveCompany, savePdf, storeProof, updateDocument } from "./services/invoiceRepository";
@@ -22,6 +22,7 @@ function formatMoney(amountCents: number, currency: string) {
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 type FilterKey = "invoiceNumber" | "documentType" | "issueDate" | "client" | "status" | "payment" | "total";
 type SortDirection = "ascending" | "descending";
+const pageSizes = [25, 50, 100] as const;
 
 const filterLabels: Record<FilterKey, string> = {
   invoiceNumber: "Number", documentType: "Type", issueDate: "Issue date", client: "Client",
@@ -56,6 +57,8 @@ function App() {
   const [activeFilter, setActiveFilter] = useState<FilterKey | null>(null);
   const [filters, setFilters] = useState<Record<FilterKey, string>>({ invoiceNumber: "", documentType: "", issueDate: "", client: "", status: "", payment: "", total: "" });
   const [sort, setSort] = useState<{ key: FilterKey; direction: SortDirection }>({ key: "issueDate", direction: "descending" });
+  const [pageSize, setPageSize] = useState<(typeof pageSizes)[number]>(25);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const documentRows = documents.map((record) => ({ record, clientName: clients.find((client) => client.id === record.data.clientId)?.data.name ?? "Unknown client" }));
   const visibleDocuments = documentRows
@@ -73,6 +76,12 @@ function App() {
       const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
       return sort.direction === "ascending" ? comparison : -comparison;
     });
+  const pageCount = Math.max(1, Math.ceil(visibleDocuments.length / pageSize));
+  const currentPageDocuments = visibleDocuments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, pageCount));
+  }, [pageCount]);
 
   useEffect(() => { void loadDashboard(); }, []);
 
@@ -154,12 +163,14 @@ function App() {
 
   function updateFilter(key: FilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
+    setCurrentPage(1);
   }
 
   function toggleSort(key: FilterKey) {
     setSort((current) => current.key === key
       ? { key, direction: current.direction === "ascending" ? "descending" : "ascending" }
       : { key, direction: "ascending" });
+    setCurrentPage(1);
   }
 
   async function chooseCompanyPath(field: "logoPath" | "outputDirectory") {
@@ -269,9 +280,20 @@ function App() {
       <section className="documents-section" aria-labelledby="documents-heading">
         <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{visibleDocuments.length} of {documents.length}</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
-          <div className="table-wrap"><table><thead><tr>{(Object.keys(filterLabels) as FilterKey[]).map((key) => <th key={key}><div className="column-heading"><button type="button" onClick={() => toggleSort(key)}>{filterLabels[key]}{sort.key === key && (sort.direction === "ascending" ? <ArrowUpAZ aria-hidden="true" size={14} /> : <ArrowDownAZ aria-hidden="true" size={14} />)}</button><button className="header-filter-button" type="button" aria-label={`Filter ${filterLabels[key]}`} title={`Filter ${filterLabels[key]}`} onClick={() => setActiveFilter((current) => current === key ? null : key)}><ListFilter aria-hidden="true" size={14} /></button></div></th>)}<th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
-            {visibleDocuments.map(({ record, clientName }) => { const { id, data } = record; const isPaid = data.paymentReceived; const proof = data.attachments[0]; return <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td>{clientName}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td><label className="payment-checkbox" title={isPaid ? "Paid documents are locked" : "Upload payment proof and mark as paid"}><input type="checkbox" checked={isPaid} disabled={isPaid || updatingPaymentId === id} onChange={() => void markDocumentPaid(record)} /><span>{isPaid ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</span></label></td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={`Edit ${data.invoiceNumber}`} title={isPaid ? "Paid documents cannot be edited" : "Edit document"} disabled={isPaid} onClick={() => openDocumentEditor(record)}><Pencil aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Open proof for ${data.invoiceNumber}`} title={proof ? `Open proof: ${proof.originalFilename}` : "No payment proof"} disabled={!proof} onClick={() => void handleOpenProof(record)}><ExternalLink aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button><button className="icon-button delete-button" type="button" aria-label={`Delete ${data.invoiceNumber}`} title="Delete document and create backup" onClick={() => void handleDeleteDocument(record)}><Trash2 aria-hidden="true" size={18} /></button></div></td></tr>; })}
+          <div>
+            <div className="table-wrap"><table><thead><tr>{(Object.keys(filterLabels) as FilterKey[]).map((key) => <th key={key}><div className="column-heading"><button type="button" onClick={() => toggleSort(key)}>{filterLabels[key]}{sort.key === key && (sort.direction === "ascending" ? <ArrowUpAZ aria-hidden="true" size={14} /> : <ArrowDownAZ aria-hidden="true" size={14} />)}</button><button className="header-filter-button" type="button" aria-label={`Filter ${filterLabels[key]}`} title={`Filter ${filterLabels[key]}`} onClick={() => setActiveFilter((current) => current === key ? null : key)}><ListFilter aria-hidden="true" size={14} /></button></div></th>)}<th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
+            {currentPageDocuments.map(({ record, clientName }) => { const { id, data } = record; const isPaid = data.paymentReceived; const proof = data.attachments[0]; return <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td>{clientName}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td><label className="payment-checkbox" title={isPaid ? "Paid documents are locked" : "Upload payment proof and mark as paid"}><input type="checkbox" checked={isPaid} disabled={isPaid || updatingPaymentId === id} onChange={() => void markDocumentPaid(record)} /><span>{isPaid ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</span></label></td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={`Edit ${data.invoiceNumber}`} title={isPaid ? "Paid documents cannot be edited" : "Edit document"} disabled={isPaid} onClick={() => openDocumentEditor(record)}><Pencil aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Open proof for ${data.invoiceNumber}`} title={proof ? `Open proof: ${proof.originalFilename}` : "No payment proof"} disabled={!proof} onClick={() => void handleOpenProof(record)}><ExternalLink aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button><button className="icon-button delete-button" type="button" aria-label={`Delete ${data.invoiceNumber}`} title="Delete document and create backup" onClick={() => void handleDeleteDocument(record)}><Trash2 aria-hidden="true" size={18} /></button></div></td></tr>; })}
           </tbody></table></div>
+          <div className="pagination-controls">
+            <label>Rows per page<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value) as (typeof pageSizes)[number]); setCurrentPage(1); }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
+            <span>{visibleDocuments.length === 0 ? "0 results" : `${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, visibleDocuments.length)} of ${visibleDocuments.length}`}</span>
+            <div className="pagination-buttons">
+              <button className="icon-button" type="button" aria-label="Previous page" title="Previous page" disabled={currentPage === 1} onClick={() => setCurrentPage((page) => page - 1)}><ArrowLeft aria-hidden="true" size={18} /></button>
+              <span>Page {currentPage} of {pageCount}</span>
+              <button className="icon-button" type="button" aria-label="Next page" title="Next page" disabled={currentPage === pageCount} onClick={() => setCurrentPage((page) => page + 1)}><ArrowRight aria-hidden="true" size={18} /></button>
+            </div>
+          </div>
+          </div>
         )}
       </section>
       {activeFilter && <div className="filter-tray"><label>Filter {filterLabels[activeFilter]}<input autoFocus value={filters[activeFilter]} onChange={(event) => updateFilter(activeFilter, event.target.value)} /></label><button className="refresh-button" type="button" onClick={() => updateFilter(activeFilter, "")}>Clear</button></div>}
