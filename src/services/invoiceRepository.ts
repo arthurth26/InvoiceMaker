@@ -2,6 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { Client, CompanyInfo, Document, StoredRecord } from "../types/invoice";
 
+export interface DatabaseLocations {
+  databaseDirectory: string;
+  backupDirectory: string;
+}
+
 export function getCompany(): Promise<StoredRecord<CompanyInfo> | null> {
   return invoke("get_company");
 }
@@ -48,6 +53,14 @@ export function openProof(relativePath: string): Promise<void> {
 
 export function deleteDocument(id: string): Promise<void> {
   return invoke("delete_document", { id });
+}
+
+export function getDatabaseLocations(): Promise<DatabaseLocations> {
+  return invoke("get_database_locations");
+}
+
+export function setAutomaticBackupDirectory(directory: string): Promise<void> {
+  return invoke("set_automatic_backup_directory", { directory });
 }
 
 export function createManualBackup(destination: string): Promise<void> {

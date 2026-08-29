@@ -4,7 +4,7 @@ import { pdf } from "@react-pdf/renderer";
 import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 
-import { createManualBackup, deleteDocument, getCompany, listClients, listDocuments, openProof, restoreBackup, saveCompany, saveCsv, savePdf, storeProof, updateDocument } from "./services/invoiceRepository";
+import { createManualBackup, deleteDocument, getCompany, getDatabaseLocations, listClients, listDocuments, openProof, restoreBackup, saveCompany, saveCsv, savePdf, setAutomaticBackupDirectory, storeProof, updateDocument } from "./services/invoiceRepository";
 import ClientEditor from "./components/ClientEditor";
 import DocumentEditor from "./components/DocumentEditor";
 import InvoicePdf from "./components/InvoicePdf";
@@ -44,6 +44,9 @@ function nextDocumentNumber(documents: StoredRecord<Document>[]) {
 function App() {
   const [companyRecord, setCompanyRecord] = useState<StoredRecord<CompanyInfo> | null>(null);
   const [company, setCompany] = useState(defaultCompany);
+  const [databaseDirectory, setDatabaseDirectory] = useState("");
+  const [backupDirectory, setBackupDirectory] = useState("");
+  const [isChangingBackupDirectory, setIsChangingBackupDirectory] = useState(false);
   const [documents, setDocuments] = useState<Awaited<ReturnType<typeof listDocuments>>>([]);
   const [clients, setClients] = useState<StoredRecord<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -94,11 +97,13 @@ function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const [savedCompany, savedDocuments, savedClients] = await Promise.all([getCompany(), listDocuments(), listClients()]);
+      const [savedCompany, savedDocuments, savedClients, locations] = await Promise.all([getCompany(), listDocuments(), listClients(), getDatabaseLocations()]);
       setCompanyRecord(savedCompany);
       setCompany(savedCompany?.data ?? defaultCompany);
       setDocuments(savedDocuments);
       setClients(savedClients);
+      setDatabaseDirectory(locations.databaseDirectory);
+      setBackupDirectory(locations.backupDirectory);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load local records.");
     } finally { setIsLoading(false); }
@@ -137,6 +142,21 @@ function App() {
     } catch (backupError) {
       setError(backupError instanceof Error ? backupError.message : "Unable to create database backup.");
     } finally { setIsBackingUp(false); }
+  }
+
+  async function handleChooseBackupDirectory() {
+    const directory = await open({ directory: true, multiple: false, title: "Choose automatic database backup directory" });
+    if (typeof directory !== "string") return;
+
+    setIsChangingBackupDirectory(true);
+    setError(null);
+    try {
+      await setAutomaticBackupDirectory(directory);
+      setBackupDirectory(directory);
+      setSuccessMessage("Automatic database backup directory updated.");
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : "Unable to change the automatic backup directory.");
+    } finally { setIsChangingBackupDirectory(false); }
   }
 
   async function handleRestoreBackup() {
@@ -309,7 +329,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div><p className="eyebrow">Local ledger</p><h1>Invoice Maker</h1></div>
+        <div className="topbar-title"><div><p className="eyebrow">Local ledger</p><h1>Invoice Maker</h1></div><label className="database-location">Database files<input readOnly value={databaseDirectory} aria-label="Database files directory" /></label><label className="database-location">Automatic backups<div className="path-input"><input readOnly value={backupDirectory} aria-label="Automatic database backup directory" /><button className="icon-button" type="button" aria-label="Choose automatic database backup directory" title="Choose automatic database backup directory" disabled={isChangingBackupDirectory} onClick={() => void handleChooseBackupDirectory()}><FolderOpen aria-hidden="true" size={18} /></button></div></label></div>
         <div className="topbar-actions">
           <button className="refresh-button" type="button" onClick={() => void loadDashboard()}>Refresh</button>
           <button className="icon-button" type="button" aria-label="Restore database backup" title="Restore database backup" disabled={isRestoring} onClick={() => void handleRestoreBackup()}><RotateCcw aria-hidden="true" size={18} /></button>

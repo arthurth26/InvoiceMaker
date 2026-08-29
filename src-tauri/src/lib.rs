@@ -1,6 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod db;
 mod commands;
+mod db;
 
 use std::{path::PathBuf, sync::Mutex};
 
@@ -9,6 +9,7 @@ use tauri::Manager;
 pub struct DatabaseState {
     pub connection: Mutex<rusqlite::Connection>,
     pub database_directory: PathBuf,
+    pub backup_directory: Mutex<PathBuf>,
 }
 
 #[tauri::command]
@@ -25,7 +26,12 @@ pub fn run() {
         .setup(|app| {
             let connection = db::open_and_migrate(app.handle())?;
             let database_directory = app.path().app_local_data_dir()?;
-            app.manage(DatabaseState { connection: Mutex::new(connection), database_directory });
+            let backup_directory = db::backup_directory(&database_directory)?;
+            app.manage(DatabaseState {
+                connection: Mutex::new(connection),
+                database_directory,
+                backup_directory: Mutex::new(backup_directory),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -42,6 +48,8 @@ pub fn run() {
             commands::store_proof,
             commands::open_proof,
             commands::delete_document,
+            commands::get_database_locations,
+            commands::set_automatic_backup_directory,
             commands::create_manual_backup,
             commands::restore_backup,
             commands::save_pdf,
