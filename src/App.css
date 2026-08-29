@@ -70,8 +70,23 @@ td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .export-csv-button { padding: 7px 10px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 22px; background: rgb(32 37 29 / 55%); }
 .editor-modal { width: min(100%, 940px); max-height: min(860px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
-.client-modal { width: min(100%, 620px); border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
+.client-modal { width: min(100%, 1180px); max-height: min(860px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
 .client-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 22px; }
+.client-list { border-top: 1px solid #abb19d; margin-top: 26px; padding-top: 20px; }
+.client-table-wrap { margin-top: 14px; }
+.client-table { table-layout: fixed; min-width: 980px; }
+.client-table th:nth-child(1), .client-table td:nth-child(1) { width: 16%; overflow-wrap: anywhere; }
+.client-table th:nth-child(2), .client-table td:nth-child(2) { width: 13%; }
+.client-table th:nth-child(3), .client-table td:nth-child(3) { width: 22%; }
+.client-table th:nth-child(4), .client-table td:nth-child(4) { width: 17%; }
+.client-table th:nth-child(5), .client-table td:nth-child(5) { width: 12%; }
+.client-table th:nth-child(6), .client-table td:nth-child(6) { width: 12%; }
+.client-table th:nth-child(7), .client-table td:nth-child(7) { width: 8%; }
+.client-table td { overflow-wrap: anywhere; vertical-align: top; }
+.client-table input, .client-table textarea { min-width: 0; }
+.editing-client-row td { padding-bottom: 18px; }
+.client-row-save { padding: 8px 10px; }
+.empty-client-row { color: #647052; text-align: left !important; }
 .editor-header { display: flex; align-items: start; justify-content: space-between; gap: 20px; border-bottom: 1px solid #abb19d; padding-bottom: 18px; }
 .close-button, .remove-button { background: transparent; color: #36402c; }
 .editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 22px 0; }

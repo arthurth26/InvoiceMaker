@@ -357,7 +357,7 @@ function App() {
       </section>
 
       <section className="documents-section" aria-labelledby="documents-heading">
-        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><button className="refresh-button" type="button" onClick={() => setIsClientEditorOpen(true)}>Add client</button><span className="document-count">{visibleDocuments.length} of {documents.length}</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
+        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><button className="refresh-button" type="button" onClick={() => setIsClientEditorOpen(true)}>Manage clients</button><span className="document-count">{visibleDocuments.length} of {documents.length}</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
           <div>
             <div className="table-wrap"><table><thead><tr>{(Object.keys(filterLabels) as FilterKey[]).map((key) => <th key={key}><div className="column-heading"><button type="button" onClick={() => toggleSort(key)}>{filterLabels[key]}{sort.key === key && (sort.direction === "ascending" ? <ArrowUpAZ aria-hidden="true" size={14} /> : <ArrowDownAZ aria-hidden="true" size={14} />)}</button><button className="header-filter-button" type="button" aria-label={`Filter ${filterLabels[key]}`} title={`Filter ${filterLabels[key]}`} onClick={() => setActiveFilter((current) => current === key ? null : key)}><ListFilter aria-hidden="true" size={14} /></button></div></th>)}<th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
@@ -377,7 +377,7 @@ function App() {
         )}
       </section>
       {activeFilter && <div className="filter-tray"><label>Filter {filterLabels[activeFilter]}<input autoFocus value={filters[activeFilter]} onChange={(event) => updateFilter(activeFilter, event.target.value)} /></label><button className="refresh-button" type="button" onClick={() => updateFilter(activeFilter, "")}>Clear</button></div>}
-      {isClientEditorOpen && <ClientEditor onClose={() => setIsClientEditorOpen(false)} onSaved={loadDashboard} />}
+      {isClientEditorOpen && <ClientEditor clients={clients} onClose={() => setIsClientEditorOpen(false)} onSaved={loadDashboard} />}
       {isEditorOpen && <DocumentEditor key={editingRecord?.id ?? duplicateDocument?.invoiceNumber ?? "new"} company={company} defaultCurrency={company.defaultCurrency} suggestedInvoiceNumber={nextDocumentNumber(documents)} editingRecord={editingRecord ?? undefined} initialDocument={duplicateDocument ?? undefined} onClose={closeEditor} onSaved={loadDashboard} />}
     </main>
   );
