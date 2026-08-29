@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
 import { pdf } from "@react-pdf/renderer";
-import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, Trash2 } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 
-import { createManualBackup, deleteDocument, getCompany, listClients, listDocuments, openProof, saveCompany, savePdf, storeProof, updateDocument } from "./services/invoiceRepository";
+import { createManualBackup, deleteDocument, getCompany, listClients, listDocuments, openProof, restoreBackup, saveCompany, saveCsv, savePdf, storeProof, updateDocument } from "./services/invoiceRepository";
+import ClientEditor from "./components/ClientEditor";
 import DocumentEditor from "./components/DocumentEditor";
 import InvoicePdf from "./components/InvoicePdf";
 import type { Client, CompanyInfo, Document, StoredRecord } from "./types/invoice";
@@ -20,12 +21,13 @@ function formatMoney(amountCents: number, currency: string) {
 }
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
-type FilterKey = "invoiceNumber" | "documentType" | "issueDate" | "client" | "status" | "payment" | "total";
+type FilterKey = "invoiceNumber" | "documentType" | "issueDate" | "dueDate" | "client" | "status" | "payment" | "total";
 type SortDirection = "ascending" | "descending";
 const pageSizes = [25, 50, 100] as const;
+const editableStatuses = ["draft", "sent", "accepted"] as const;
 
 const filterLabels: Record<FilterKey, string> = {
-  invoiceNumber: "Number", documentType: "Type", issueDate: "Issue date", client: "Client",
+  invoiceNumber: "Number", documentType: "Type", issueDate: "Issue date", dueDate: "Due date", client: "Client",
   status: "Status", payment: "Payment", total: "Total",
 };
 
@@ -48,14 +50,17 @@ function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isClientEditorOpen, setIsClientEditorOpen] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingPdfId, setSavingPdfId] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<StoredRecord<Document> | null>(null);
   const [duplicateDocument, setDuplicateDocument] = useState<Document | null>(null);
   const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey | null>(null);
-  const [filters, setFilters] = useState<Record<FilterKey, string>>({ invoiceNumber: "", documentType: "", issueDate: "", client: "", status: "", payment: "", total: "" });
+  const [filters, setFilters] = useState<Record<FilterKey, string>>({ invoiceNumber: "", documentType: "", issueDate: "", dueDate: "", client: "", status: "", payment: "", total: "" });
   const [sort, setSort] = useState<{ key: FilterKey; direction: SortDirection }>({ key: "issueDate", direction: "descending" });
   const [pageSize, setPageSize] = useState<(typeof pageSizes)[number]>(25);
   const [currentPage, setCurrentPage] = useState(1);
@@ -64,15 +69,15 @@ function App() {
   const visibleDocuments = documentRows
     .filter(({ record, clientName }) => {
       const values: Record<FilterKey, string> = {
-        invoiceNumber: record.data.invoiceNumber, documentType: record.data.documentType, issueDate: record.data.issueDate,
+        invoiceNumber: record.data.invoiceNumber, documentType: record.data.documentType, issueDate: record.data.issueDate, dueDate: record.data.dueDate ?? "",
         client: clientName, status: record.data.status, payment: record.data.paymentReceived ? "received" : "outstanding",
         total: formatMoney(record.data.totalCents, record.data.currency),
       };
       return (Object.keys(filters) as FilterKey[]).every((key) => values[key].toLowerCase().includes(filters[key].toLowerCase()));
     })
     .sort((left, right) => {
-      const leftValue = sort.key === "client" ? left.clientName : sort.key === "total" ? left.record.data.totalCents : sort.key === "payment" ? Number(left.record.data.paymentReceived) : left.record.data[sort.key === "invoiceNumber" ? "invoiceNumber" : sort.key === "documentType" ? "documentType" : sort.key === "issueDate" ? "issueDate" : "status"];
-      const rightValue = sort.key === "client" ? right.clientName : sort.key === "total" ? right.record.data.totalCents : sort.key === "payment" ? Number(right.record.data.paymentReceived) : right.record.data[sort.key === "invoiceNumber" ? "invoiceNumber" : sort.key === "documentType" ? "documentType" : sort.key === "issueDate" ? "issueDate" : "status"];
+      const leftValue = sort.key === "client" ? left.clientName : sort.key === "total" ? left.record.data.totalCents : sort.key === "payment" ? Number(left.record.data.paymentReceived) : left.record.data[sort.key === "invoiceNumber" ? "invoiceNumber" : sort.key === "documentType" ? "documentType" : sort.key === "issueDate" ? "issueDate" : sort.key === "dueDate" ? "dueDate" : "status"] ?? "";
+      const rightValue = sort.key === "client" ? right.clientName : sort.key === "total" ? right.record.data.totalCents : sort.key === "payment" ? Number(right.record.data.paymentReceived) : right.record.data[sort.key === "invoiceNumber" ? "invoiceNumber" : sort.key === "documentType" ? "documentType" : sort.key === "issueDate" ? "issueDate" : sort.key === "dueDate" ? "dueDate" : "status"] ?? "";
       const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
       return sort.direction === "ascending" ? comparison : -comparison;
     });
@@ -134,6 +139,22 @@ function App() {
     } finally { setIsBackingUp(false); }
   }
 
+  async function handleRestoreBackup() {
+    const source = await open({ directory: false, multiple: false, title: "Choose database backup", filters: [{ name: "SQLite database", extensions: ["db"] }] });
+    if (typeof source !== "string") return;
+    const confirmed = await ask("Restoring replaces the active database after backing it up. The app will restart. Continue?", { kind: "warning", title: "Restore database backup" });
+    if (!confirmed) return;
+
+    setIsRestoring(true);
+    setError(null);
+    try {
+      await restoreBackup(source);
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : "Unable to restore database backup.");
+      setIsRestoring(false);
+    }
+  }
+
   async function handleSavePdf(document: Document) {
     setSuccessMessage(null);
     setError(null);
@@ -153,6 +174,33 @@ function App() {
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save PDF.");
     } finally { setSavingPdfId(null); }
+  }
+
+  async function handleExportCsv() {
+    setSuccessMessage(null);
+    setError(null);
+    const destination = await save({
+      defaultPath: `invoices-and-quotes-${new Date().toISOString().slice(0, 10)}.csv`,
+      filters: [{ name: "CSV file", extensions: ["csv"] }],
+    });
+    if (!destination) return;
+
+    const rows = [
+      ["Number", "Type", "Issue date", "Due date", "Client", "Status", "Payment", "Total"],
+      ...visibleDocuments.map(({ record, clientName }) => {
+        const { data } = record;
+        return [data.invoiceNumber, data.documentType, data.issueDate, data.dueDate ?? "", clientName, data.status, data.paymentReceived ? data.paymentReceivedDate ?? "Received" : "Outstanding", formatMoney(data.totalCents, data.currency)];
+      }),
+    ];
+
+    setIsExportingCsv(true);
+    try {
+      const contents = `\uFEFF${rows.map((row) => row.map((value) => `"${value.replace(/"/g, "\"\"")}"`).join(",")).join("\r\n")}`;
+      await saveCsv(destination, contents);
+      setSuccessMessage(`All ${visibleDocuments.length} filtered table rows exported as CSV.`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to export CSV.");
+    } finally { setIsExportingCsv(false); }
   }
 
   function openNewDocument() {
@@ -214,6 +262,16 @@ function App() {
     } finally { setUpdatingPaymentId(null); }
   }
 
+  async function updateDocumentStatus(record: StoredRecord<Document>, status: (typeof editableStatuses)[number]) {
+    setError(null);
+    try {
+      await updateDocument({ ...record, updatedAt: new Date().toISOString(), data: { ...record.data, status } });
+      await loadDashboard();
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Unable to update document status.");
+    }
+  }
+
   async function handleOpenProof(record: StoredRecord<Document>) {
   const proof = record.data.attachments[0];
   if (!proof) return;
@@ -253,8 +311,9 @@ function App() {
       <header className="topbar">
         <div><p className="eyebrow">Local ledger</p><h1>Invoice Maker</h1></div>
         <div className="topbar-actions">
-          <button className="icon-button" type="button" aria-label="Create database backup" title="Create database backup" disabled={isBackingUp} onClick={() => void handleCreateBackup()}><DatabaseBackup aria-hidden="true" size={18} /></button>
           <button className="refresh-button" type="button" onClick={() => void loadDashboard()}>Refresh</button>
+          <button className="icon-button" type="button" aria-label="Restore database backup" title="Restore database backup" disabled={isRestoring} onClick={() => void handleRestoreBackup()}><RotateCcw aria-hidden="true" size={18} /></button>
+          <button className="icon-button" type="button" aria-label="Create database backup" title="Create database backup" disabled={isBackingUp} onClick={() => void handleCreateBackup()}><DatabaseBackup aria-hidden="true" size={18} /></button>
         </div>
       </header>
       {error && <p className="notice error" role="alert">{error}</p>}
@@ -278,11 +337,11 @@ function App() {
       </section>
 
       <section className="documents-section" aria-labelledby="documents-heading">
-        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><span className="document-count">{visibleDocuments.length} of {documents.length}</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
+        <div className="section-heading"><div><p className="eyebrow">Documents</p><h2 id="documents-heading">Invoices and quotes</h2></div><div className="document-actions"><button className="refresh-button" type="button" onClick={() => setIsClientEditorOpen(true)}>Add client</button><span className="document-count">{visibleDocuments.length} of {documents.length}</span><button className="primary-button" type="button" onClick={openNewDocument}>New document</button></div></div>
         {isLoading ? <p className="empty-state">Loading local records...</p> : documents.length === 0 ? <p className="empty-state">No invoices or quotes yet.</p> : (
           <div>
             <div className="table-wrap"><table><thead><tr>{(Object.keys(filterLabels) as FilterKey[]).map((key) => <th key={key}><div className="column-heading"><button type="button" onClick={() => toggleSort(key)}>{filterLabels[key]}{sort.key === key && (sort.direction === "ascending" ? <ArrowUpAZ aria-hidden="true" size={14} /> : <ArrowDownAZ aria-hidden="true" size={14} />)}</button><button className="header-filter-button" type="button" aria-label={`Filter ${filterLabels[key]}`} title={`Filter ${filterLabels[key]}`} onClick={() => setActiveFilter((current) => current === key ? null : key)}><ListFilter aria-hidden="true" size={14} /></button></div></th>)}<th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>
-            {currentPageDocuments.map(({ record, clientName }) => { const { id, data } = record; const isPaid = data.paymentReceived; const proof = data.attachments[0]; return <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td>{clientName}</td><td><span className={`status ${data.status}`}>{data.status}</span></td><td><label className="payment-checkbox" title={isPaid ? "Paid documents are locked" : "Upload payment proof and mark as paid"}><input type="checkbox" checked={isPaid} disabled={isPaid || updatingPaymentId === id} onChange={() => void markDocumentPaid(record)} /><span>{isPaid ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</span></label></td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={`Edit ${data.invoiceNumber}`} title={isPaid ? "Paid documents cannot be edited" : "Edit document"} disabled={isPaid} onClick={() => openDocumentEditor(record)}><Pencil aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Open proof for ${data.invoiceNumber}`} title={proof ? `Open proof: ${proof.originalFilename}` : "No payment proof"} disabled={!proof} onClick={() => void handleOpenProof(record)}><ExternalLink aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button><button className="icon-button delete-button" type="button" aria-label={`Delete ${data.invoiceNumber}`} title="Delete document and create backup" onClick={() => void handleDeleteDocument(record)}><Trash2 aria-hidden="true" size={18} /></button></div></td></tr>; })}
+            {currentPageDocuments.map(({ record, clientName }) => { const { id, data } = record; const isPaid = data.paymentReceived; const proof = data.attachments[0]; return <tr key={id}><td>{data.invoiceNumber}</td><td>{data.documentType}</td><td>{data.issueDate}</td><td>{data.dueDate ?? "-"}</td><td>{clientName}</td><td>{isPaid ? <span className="status paid">paid</span> : <select className="status-select" aria-label={`Status for ${data.invoiceNumber}`} value={editableStatuses.includes(data.status as (typeof editableStatuses)[number]) ? data.status : "draft"} onChange={(event) => void updateDocumentStatus(record, event.target.value as (typeof editableStatuses)[number])}>{editableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select>}</td><td><label className="payment-checkbox" title={isPaid ? "Paid documents are locked" : "Upload payment proof and mark as paid"}><input type="checkbox" checked={isPaid} disabled={isPaid || updatingPaymentId === id} onChange={() => void markDocumentPaid(record)} /><span>{isPaid ? data.paymentReceivedDate ?? "Received" : "Outstanding"}</span></label></td><td>{formatMoney(data.totalCents, data.currency)}</td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={`Edit ${data.invoiceNumber}`} title={isPaid ? "Paid documents cannot be edited" : "Edit document"} disabled={isPaid} onClick={() => openDocumentEditor(record)}><Pencil aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Open proof for ${data.invoiceNumber}`} title={proof ? `Open proof: ${proof.originalFilename}` : "No payment proof"} disabled={!proof} onClick={() => void handleOpenProof(record)}><ExternalLink aria-hidden="true" size={18} /></button><button className="icon-button" type="button" aria-label={`Save ${data.invoiceNumber} as PDF`} title="Save PDF" disabled={savingPdfId === data.id} onClick={() => void handleSavePdf(data)}><FileDown aria-hidden="true" size={18} /></button><button className="icon-button delete-button" type="button" aria-label={`Delete ${data.invoiceNumber}`} title="Delete document and create backup" onClick={() => void handleDeleteDocument(record)}><Trash2 aria-hidden="true" size={18} /></button></div></td></tr>; })}
           </tbody></table></div>
           <div className="pagination-controls">
             <label>Rows per page<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value) as (typeof pageSizes)[number]); setCurrentPage(1); }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
@@ -293,10 +352,12 @@ function App() {
               <button className="icon-button" type="button" aria-label="Next page" title="Next page" disabled={currentPage === pageCount} onClick={() => setCurrentPage((page) => page + 1)}><ArrowRight aria-hidden="true" size={18} /></button>
             </div>
           </div>
+          <div className="table-footer"><button className="refresh-button export-csv-button" type="button" disabled={isExportingCsv} onClick={() => void handleExportCsv()}><FileDown aria-hidden="true" size={16} />{isExportingCsv ? "Exporting..." : "Export CSV"}</button></div>
           </div>
         )}
       </section>
       {activeFilter && <div className="filter-tray"><label>Filter {filterLabels[activeFilter]}<input autoFocus value={filters[activeFilter]} onChange={(event) => updateFilter(activeFilter, event.target.value)} /></label><button className="refresh-button" type="button" onClick={() => updateFilter(activeFilter, "")}>Clear</button></div>}
+      {isClientEditorOpen && <ClientEditor onClose={() => setIsClientEditorOpen(false)} onSaved={loadDashboard} />}
       {isEditorOpen && <DocumentEditor key={editingRecord?.id ?? duplicateDocument?.invoiceNumber ?? "new"} company={company} defaultCurrency={company.defaultCurrency} suggestedInvoiceNumber={nextDocumentNumber(documents)} editingRecord={editingRecord ?? undefined} initialDocument={duplicateDocument ?? undefined} onClose={closeEditor} onSaved={loadDashboard} />}
     </main>
   );

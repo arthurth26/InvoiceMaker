@@ -43,7 +43,9 @@ pub fn run() {
             commands::open_proof,
             commands::delete_document,
             commands::create_manual_backup,
+            commands::restore_backup,
             commands::save_pdf,
+            commands::save_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -18,6 +18,7 @@ pub enum RepositoryError {
 	InvalidRecordId,
 	InconsistentPaymentStatus,
 	InconsistentPaymentDate,
+	DueDateBeforeCreation,
 	RecordIdConflict,
 	InvalidTotals,
 }
@@ -36,6 +37,7 @@ impl fmt::Display for RepositoryError {
 			Self::InconsistentPaymentDate => {
 				write!(formatter, "payment received date must match the payment received flag")
 			}
+			Self::DueDateBeforeCreation => write!(formatter, "due date cannot be before the document creation date"),
 			Self::RecordIdConflict => write!(formatter, "record ID belongs to another record type"),
 			Self::InvalidTotals => write!(formatter, "document totals do not match its line items"),
 		}
@@ -267,6 +269,9 @@ impl<'connection> Repository<'connection> {
 		}
 		if record.data.payment_received != record.data.payment_received_date.is_some() {
 			return Err(RepositoryError::InconsistentPaymentDate);
+		}
+		if record.data.due_date.as_deref().is_some_and(|due_date| due_date < &record.created_at[..10]) {
+			return Err(RepositoryError::DueDateBeforeCreation);
 		}
 		let (subtotal_cents, tax_amount_cents, total_cents) = calculate_totals(&record.data);
 		if (record.data.subtotal_cents, record.data.tax_amount_cents, record.data.total_cents)

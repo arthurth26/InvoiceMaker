@@ -54,6 +54,14 @@ export function createManualBackup(destination: string): Promise<void> {
   return invoke("create_manual_backup", { destination });
 }
 
+export function restoreBackup(source: string): Promise<void> {
+  return invoke("restore_backup", { source });
+}
+
 export function savePdf(destination: string, contents: number[]): Promise<void> {
   return invoke("save_pdf", { destination, contents });
+}
+
+export function saveCsv(destination: string, contents: string): Promise<void> {
+  return invoke("save_csv", { destination, contents });
 }

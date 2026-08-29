@@ -18,6 +18,7 @@ h1, h2 { margin: 0; font-weight: 500; }
 h1 { font-size: 36px; }
 h2 { font-size: 25px; }
 .company-section, .documents-section { padding: 30px 0; border-bottom: 1px solid #abb19d; }
+.documents-section { border-bottom: 0; }
 .saved-state, .document-count { color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 14px; }
 .company-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
 label { display: grid; gap: 7px; color: #3f4638; font-family: "Trebuchet MS", sans-serif; font-size: 13px; font-weight: 700; }
@@ -36,7 +37,7 @@ button:disabled { cursor: wait; opacity: .7; }
 .success { border-left: 4px solid #3d713a; background: #e1efdc; color: #245328; }
 .empty-state { margin: 26px 0 0; color: #647052; font-size: 18px; }
 .table-wrap { overflow-x: auto; margin-top: 22px; }
-table { width: 100%; border-collapse: collapse; min-width: 700px; }
+table { width: 100%; border-collapse: collapse; min-width: 800px; }
 th, td { border-bottom: 1px solid #c5c7b9; padding: 13px 10px; text-align: left; }
 .pagination-controls { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 14px; color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 13px; }
 .pagination-controls label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
@@ -58,9 +59,15 @@ td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .status { display: inline-block; border-radius: 3px; padding: 3px 7px; background: #e0e4d2; color: #38452d; font-family: "Trebuchet MS", sans-serif; font-size: 12px; }
 .status.paid { background: #cde0c4; color: #245328; }
 .status.draft { background: #ded9ca; color: #5e5849; }
+.status-select { width: auto; min-width: 92px; padding: 4px 24px 4px 7px; font-size: 14px; text-transform: capitalize; }
 .document-actions { display: flex; align-items: center; gap: 14px; }
+.table-footer { display: flex; justify-content: flex-end; margin-top: 14px; }
+.export-csv-button { display: flex; align-items: center; gap: 10px; }
+.export-csv-button { padding: 7px 10px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 22px; background: rgb(32 37 29 / 55%); }
 .editor-modal { width: min(100%, 940px); max-height: min(860px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
+.client-modal { width: min(100%, 620px); border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
+.client-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 22px; }
 .editor-header { display: flex; align-items: start; justify-content: space-between; gap: 20px; border-bottom: 1px solid #abb19d; padding-bottom: 18px; }
 .close-button, .remove-button { background: transparent; color: #36402c; }
 .editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 22px 0; }
@@ -72,10 +79,12 @@ td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .line-items { border-top: 1px solid #abb19d; padding: 20px 0; }
 .line-items-heading { display: flex; align-items: center; justify-content: space-between; }
 h3 { margin: 0; font-size: 19px; font-weight: 500; }
-.line-item { display: grid; grid-template-columns: minmax(180px, 1fr) 100px 120px auto; gap: 10px; margin-top: 10px; }
-.line-item-labels { color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 12px; font-weight: 700; margin-top: 16px; text-transform: uppercase; }
+.line-item { display: grid; grid-template-columns: minmax(180px, 1fr) 100px 120px 90px; gap: 10px; margin-top: 10px; }
+.line-item-labels { align-items: center; color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 12px; font-weight: 700; margin-top: 16px; text-align: left; text-transform: uppercase; }
+.line-item-labels span { justify-self: stretch; text-align: left; }
+.remove-button { width: 90px; }
 .notes-field { margin-top: 4px; }
 .editor-footer { display: flex; align-items: end; justify-content: space-between; gap: 24px; border-top: 1px solid #abb19d; margin-top: 24px; padding-top: 20px; }
 dl { display: flex; gap: 22px; margin: 0; } dt { color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 12px; } dd { margin: 3px 0 0; font-variant-numeric: tabular-nums; } dl div:last-child dd { font-weight: 700; }
 @media (max-width: 760px) { .app-shell { padding: 26px 18px 48px; } .company-form { grid-template-columns: 1fr; } .wide-field, .form-actions { grid-column: auto; } .topbar { align-items: flex-start; } h1 { font-size: 30px; } }
-@media (max-width: 760px) { .editor-modal { padding: 20px; } .editor-grid, .new-client { grid-template-columns: 1fr; } .line-item { grid-template-columns: 1fr 1fr; } .line-item input:first-child { grid-column: 1 / -1; } .editor-footer, dl { align-items: stretch; flex-direction: column; } .document-actions { align-items: end; flex-direction: column; gap: 6px; } .pagination-controls { align-items: flex-end; flex-direction: column; gap: 10px; } }
+@media (max-width: 760px) { .editor-modal, .client-modal { padding: 20px; } .editor-grid, .client-form { grid-template-columns: 1fr; } .line-item { grid-template-columns: 1fr 1fr; } .line-item input:first-child { grid-column: 1 / -1; } .editor-footer, dl { align-items: stretch; flex-direction: column; } .document-actions { align-items: end; flex-direction: column; gap: 6px; } .pagination-controls { align-items: flex-end; flex-direction: column; gap: 10px; } }

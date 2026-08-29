@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
 	db::{models::{Client, CompanyInfo, Document, StoredRecord}, repository::Repository},
@@ -82,8 +82,23 @@ pub fn create_manual_backup(destination: String, database: State<'_, DatabaseSta
 }
 
 #[tauri::command]
+pub fn restore_backup(source: String, app: AppHandle, database: State<'_, DatabaseState>) -> CommandResult<()> {
+	{
+		let mut connection = database.connection.lock().map_err(|_| "database connection is unavailable".to_owned())?;
+		crate::db::restore_backup(Path::new(&source), &mut connection, &database.database_directory)
+			.map_err(|error| error.to_string())?;
+	}
+	app.restart();
+}
+
+#[tauri::command]
 pub fn save_pdf(destination: String, contents: Vec<u8>) -> CommandResult<()> {
 	crate::db::save_pdf(Path::new(&destination), &contents).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_csv(destination: String, contents: String) -> CommandResult<()> {
+	crate::db::save_pdf(Path::new(&destination), contents.as_bytes()).map_err(|error| error.to_string())
 }
 
 fn with_repository<T>(

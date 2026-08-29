@@ -48,6 +48,14 @@ pub fn create_manual_backup(connection: &Connection, destination: &Path) -> Resu
 	Ok(())
 }
 
+pub fn restore_backup(source: &Path, connection: &mut Connection, database_directory: &Path) -> Result<(), DatabaseError> {
+	create_backup(connection, database_directory, "invoicemaker-before-restore")?;
+	let source_connection = Connection::open(source)?;
+	let backup = Backup::new(&source_connection, connection)?;
+	backup.run_to_completion(5, std::time::Duration::from_millis(10), None)?;
+	Ok(())
+}
+
 pub fn create_replacement_backup(connection: &Connection, database_directory: &Path) -> Result<PathBuf, DatabaseError> {
 	create_backup(connection, database_directory, "invoicemaker-before-replacement")
 }
