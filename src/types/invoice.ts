@@ -18,7 +18,16 @@ export interface CompanyInfo {
   taxId: string;
   logoPath: string | null;
   defaultCurrency: string;
+  bankAccounts: BankAccount[];
+  defaultBankAccountId: string | null;
   outputDirectory: string;
+}
+
+export interface BankAccount {
+  id: string;
+  nickname: string;
+  institution: string;
+  accountNumber: string;
 }
 
 export interface Client {

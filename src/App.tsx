@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
 import { pdf } from "@react-pdf/renderer";
-import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowRight, ArrowUpAZ, DatabaseBackup, ExternalLink, FileDown, FolderOpen, ListFilter, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 
 import { createManualBackup, deleteDocument, getCompany, getDatabaseLocations, listClients, listDocuments, openProof, restoreBackup, saveCompany, saveCsv, savePdf, setAutomaticBackupDirectory, storeProof, updateDocument } from "./services/invoiceRepository";
 import ClientEditor from "./components/ClientEditor";
 import DocumentEditor from "./components/DocumentEditor";
 import InvoicePdf from "./components/InvoicePdf";
-import type { Client, CompanyInfo, Document, StoredRecord } from "./types/invoice";
+import type { BankAccount, Client, CompanyInfo, Document, StoredRecord } from "./types/invoice";
 import "./App.css";
 
 const defaultCompany: CompanyInfo = {
   name: "", address: "", email: "", phone: "", taxId: "", logoPath: null,
-  defaultCurrency: "HKD", outputDirectory: "",
+  defaultCurrency: "HKD", bankAccounts: [], defaultBankAccountId: null, outputDirectory: "",
 };
+
+const emptyBankAccount = (): BankAccount => ({ id: crypto.randomUUID(), nickname: "", institution: "", accountNumber: "" });
 
 function formatMoney(amountCents: number, currency: string) {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amountCents / 100);
@@ -54,6 +56,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isClientEditorOpen, setIsClientEditorOpen] = useState(false);
+  const [isBankAccountManagerOpen, setIsBankAccountManagerOpen] = useState(false);
+  const [newBankAccount, setNewBankAccount] = useState<BankAccount>(emptyBankAccount);
+  const [editingBankAccountId, setEditingBankAccountId] = useState<string | null>(null);
+  const [bankAccountDraft, setBankAccountDraft] = useState<BankAccount | null>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
@@ -326,6 +332,92 @@ function App() {
     setDuplicateDocument(null);
   }
 
+  async function persistCompany(nextCompany: CompanyInfo) {
+    setIsSaving(true);
+    setError(null);
+    const timestamp = new Date().toISOString();
+    const record: StoredRecord<CompanyInfo> = {
+      id: "company", recordKind: "company", createdAt: companyRecord?.createdAt ?? timestamp,
+      updatedAt: timestamp, data: nextCompany,
+    };
+    try {
+      await saveCompany(record);
+      setCompany(nextCompany);
+      setCompanyRecord(record);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save company details.");
+      throw saveError;
+    } finally { setIsSaving(false); }
+  }
+
+  async function addBankAccount() {
+    if (!newBankAccount.nickname.trim() || !newBankAccount.institution.trim() || !newBankAccount.accountNumber.trim()) return;
+    const nextCompany = { ...company, bankAccounts: [...company.bankAccounts, newBankAccount] };
+    try {
+      await persistCompany(nextCompany);
+      setNewBankAccount(emptyBankAccount());
+    } catch { /* The shared save path shows the error. */ }
+  }
+
+  function beginBankAccountEdit(account: BankAccount) {
+    setEditingBankAccountId(account.id);
+    setBankAccountDraft({ ...account });
+  }
+
+  function updateBankAccountDraft(field: keyof Omit<BankAccount, "id">, value: string) {
+    setBankAccountDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  async function saveBankAccountEdit() {
+    if (!bankAccountDraft) return;
+    const nextCompany = { ...company, bankAccounts: company.bankAccounts.map((account) => account.id === bankAccountDraft.id ? bankAccountDraft : account) };
+    try {
+      await persistCompany(nextCompany);
+      setEditingBankAccountId(null);
+      setBankAccountDraft(null);
+    } catch { /* Keep the draft open so the user can retry. */ }
+  }
+
+  async function removeBankAccount(id: string) {
+    const nextCompany = {
+      ...company,
+      bankAccounts: company.bankAccounts.filter((account) => account.id !== id),
+      defaultBankAccountId: company.defaultBankAccountId === id ? null : company.defaultBankAccountId,
+    };
+    try { await persistCompany(nextCompany); } catch { /* The shared save path shows the error. */ }
+  }
+
+  function hasBankAccountDraftChanges() {
+    const savedAccount = company.bankAccounts.find((account) => account.id === bankAccountDraft?.id);
+    return Boolean(bankAccountDraft && savedAccount && (
+      bankAccountDraft.nickname !== savedAccount.nickname
+      || bankAccountDraft.institution !== savedAccount.institution
+      || bankAccountDraft.accountNumber !== savedAccount.accountNumber
+    ));
+  }
+
+  function hasNewBankAccountChanges() {
+    return Boolean(newBankAccount.nickname || newBankAccount.institution || newBankAccount.accountNumber);
+  }
+
+  async function closeBankAccountManager() {
+    if (hasBankAccountDraftChanges() || hasNewBankAccountChanges()) {
+      const shouldSave = await ask("You have unsaved bank account changes. Save them before closing?", { kind: "warning", title: "Unsaved bank account changes" });
+      if (shouldSave) {
+        if (hasNewBankAccountChanges() && (!newBankAccount.nickname.trim() || !newBankAccount.institution.trim() || !newBankAccount.accountNumber.trim())) {
+          setError("Complete the new bank account before saving.");
+          return;
+        }
+        await saveBankAccountEdit();
+        await addBankAccount();
+      }
+    }
+    setEditingBankAccountId(null);
+    setBankAccountDraft(null);
+    setNewBankAccount(emptyBankAccount());
+    setIsBankAccountManagerOpen(false);
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -348,11 +440,15 @@ function App() {
           <label>Company name<input required value={company.name} onChange={(event) => setCompany({ ...company, name: event.target.value })} /></label>
           <label>Email<input type="email" value={company.email} onChange={(event) => setCompany({ ...company, email: event.target.value })} /></label>
           <label>Phone<input value={company.phone} onChange={(event) => setCompany({ ...company, phone: event.target.value })} /></label>
-          <label>Default currency<select value={company.defaultCurrency} onChange={(event) => setCompany({ ...company, defaultCurrency: event.target.value })}><option value="HKD">HKD</option><option value="USD">USD</option></select></label>
           <label>Logo file<div className="path-input"><input value={company.logoPath ?? ""} onChange={(event) => setCompany({ ...company, logoPath: event.target.value || null })} /><button className="icon-button" type="button" aria-label="Choose company logo" title="Choose company logo" onClick={() => void chooseCompanyPath("logoPath")}><FolderOpen aria-hidden="true" size={18} /></button></div></label>
           <label>Output directory<div className="path-input"><input value={company.outputDirectory} onChange={(event) => setCompany({ ...company, outputDirectory: event.target.value })} /><button className="icon-button" type="button" aria-label="Choose output directory" title="Choose output directory" onClick={() => void chooseCompanyPath("outputDirectory")}><FolderOpen aria-hidden="true" size={18} /></button></div></label>
           <label className="wide-field">Address<textarea rows={2} value={company.address} onChange={(event) => setCompany({ ...company, address: event.target.value })} /></label>
-          <div className="form-actions"><button className="primary-button" disabled={isSaving} type="submit">{isSaving ? "Saving..." : "Save company"}</button></div>
+          <div className="company-payment-settings wide-field">
+            <label>Default currency<select value={company.defaultCurrency} onChange={(event) => setCompany({ ...company, defaultCurrency: event.target.value })}><option value="HKD">HKD</option><option value="USD">USD</option></select></label>
+            <label>Bank account<select value={company.defaultBankAccountId ?? ""} onChange={(event) => setCompany({ ...company, defaultBankAccountId: event.target.value || null })}><option value="">No account selected</option>{company.bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.nickname} - {account.accountNumber}</option>)}</select></label>
+            <button className="icon-button bank-account-manager-button" type="button" aria-label="Manage bank accounts" title="Manage bank accounts" onClick={() => setIsBankAccountManagerOpen(true)}><Plus aria-hidden="true" size={18} /></button>
+          </div>
+          <div className="form-actions"><button className="primary-button" disabled={isSaving} type="submit">{isSaving ? "Saving..." : "Save Company Info"}</button></div>
         </form>
       </section>
 
@@ -378,6 +474,11 @@ function App() {
       </section>
       {activeFilter && <div className="filter-tray"><label>Filter {filterLabels[activeFilter]}<input autoFocus value={filters[activeFilter]} onChange={(event) => updateFilter(activeFilter, event.target.value)} /></label><button className="refresh-button" type="button" onClick={() => updateFilter(activeFilter, "")}>Clear</button></div>}
       {isClientEditorOpen && <ClientEditor clients={clients} onClose={() => setIsClientEditorOpen(false)} onSaved={loadDashboard} />}
+      {isBankAccountManagerOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => void closeBankAccountManager()}><section className="bank-account-modal" role="dialog" aria-modal="true" aria-labelledby="bank-accounts-heading" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="editor-header"><div><p className="eyebrow">Payment settings</p><h2 id="bank-accounts-heading">Bank accounts</h2></div><button className="icon-button" type="button" aria-label="Close bank account manager" title="Close" onClick={() => void closeBankAccountManager()}>x</button></div>
+        <div className="table-wrap bank-account-table-wrap"><table className="bank-account-table"><thead><tr><th>Nickname</th><th>Account institution</th><th>Bank account ID</th><th>Actions</th></tr></thead><tbody>{company.bankAccounts.map((account) => { const isEditing = editingBankAccountId === account.id; const displayedAccount = isEditing && bankAccountDraft ? bankAccountDraft : account; return <tr key={account.id}><td><input aria-label={`Nickname for ${account.accountNumber}`} readOnly={!isEditing} value={displayedAccount.nickname} onChange={(event) => updateBankAccountDraft("nickname", event.target.value)} /></td><td><input aria-label={`Institution for ${account.accountNumber}`} readOnly={!isEditing} value={displayedAccount.institution} onChange={(event) => updateBankAccountDraft("institution", event.target.value)} /></td><td><input aria-label={`Account ID for ${account.nickname || account.accountNumber}`} readOnly={!isEditing} value={displayedAccount.accountNumber} onChange={(event) => updateBankAccountDraft("accountNumber", event.target.value)} /></td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label={isEditing ? `Save ${account.nickname || account.accountNumber}` : `Modify ${account.nickname || account.accountNumber}`} title={isEditing ? "Save account" : "Modify account"} disabled={isSaving || (!isEditing && Boolean(bankAccountDraft))} onClick={() => void (isEditing ? saveBankAccountEdit() : beginBankAccountEdit(account))}>{isEditing ? <Save aria-hidden="true" size={18} /> : <Pencil aria-hidden="true" size={18} />}</button><button className="icon-button delete-button" type="button" aria-label={`Delete ${account.nickname || account.accountNumber}`} title="Delete account" disabled={isSaving || Boolean(bankAccountDraft)} onClick={() => void removeBankAccount(account.id)}><Trash2 aria-hidden="true" size={18} /></button></div></td></tr>; })}<tr className="new-bank-account-row"><td><input aria-label="New account nickname" placeholder="Nickname" value={newBankAccount.nickname} onChange={(event) => setNewBankAccount({ ...newBankAccount, nickname: event.target.value })} /></td><td><input aria-label="New account institution" placeholder="Institution" value={newBankAccount.institution} onChange={(event) => setNewBankAccount({ ...newBankAccount, institution: event.target.value })} /></td><td><input aria-label="New bank account ID" placeholder="Account ID" value={newBankAccount.accountNumber} onChange={(event) => setNewBankAccount({ ...newBankAccount, accountNumber: event.target.value })} /></td><td className="actions-cell"><div className="row-actions"><button className="icon-button" type="button" aria-label="Add bank account" title="Add bank account" disabled={isSaving} onClick={() => void addBankAccount()}><Plus aria-hidden="true" size={18} /></button></div></td></tr></tbody></table></div>
+        <div className="editor-footer"><p className="saved-state">Save company details to keep account changes.</p><button className="primary-button" type="button" onClick={() => void closeBankAccountManager()}>Done</button></div>
+      </section></div>}
       {isEditorOpen && <DocumentEditor key={editingRecord?.id ?? duplicateDocument?.invoiceNumber ?? "new"} company={company} defaultCurrency={company.defaultCurrency} suggestedInvoiceNumber={nextDocumentNumber(documents)} editingRecord={editingRecord ?? undefined} initialDocument={duplicateDocument ?? undefined} onClose={closeEditor} onSaved={loadDashboard} />}
     </main>
   );

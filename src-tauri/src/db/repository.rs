@@ -520,6 +520,8 @@ mod tests {
                     tax_id: String::new(),
                     logo_path: None,
                     default_currency: "USD".to_owned(),
+                    bank_accounts: Vec::new(),
+                    default_bank_account_id: None,
                     output_directory: String::new(),
                 },
             })

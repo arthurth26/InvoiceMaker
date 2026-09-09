@@ -29,6 +29,8 @@ label { display: grid; gap: 7px; color: #3f4638; font-family: "Trebuchet MS", sa
 input, select, textarea { width: 100%; border: 1px solid #89907f; border-radius: 3px; background: #faf8f0; color: #20251d; padding: 10px; font-family: Georgia, "Times New Roman", serif; font-size: 16px; }
 textarea { resize: vertical; }
 .wide-field, .form-actions { grid-column: 1 / -1; }
+.company-payment-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 38px; align-items: end; gap: 18px; }
+button.bank-account-manager-button { width: 38px; height: 43px; margin-bottom: 0; }
 .form-actions { margin-top: 4px; }
 button { border: 1px solid #36402c; border-radius: 3px; cursor: pointer; padding: 10px 16px; font-family: "Trebuchet MS", sans-serif; font-size: 14px; font-weight: 700; }
 button:disabled { cursor: wait; opacity: .7; }
@@ -71,6 +73,15 @@ td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 22px; background: rgb(32 37 29 / 55%); }
 .editor-modal { width: min(100%, 940px); max-height: min(860px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
 .client-modal { width: min(100%, 1180px); max-height: min(860px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
+.bank-account-modal { width: min(100%, 900px); max-height: min(760px, calc(100vh - 44px)); overflow: auto; border: 1px solid #36402c; background: #faf8f0; padding: 28px; box-shadow: 0 16px 48px rgb(32 37 29 / 32%); }
+.bank-account-table { min-width: 720px; }
+.bank-account-table th:nth-child(1), .bank-account-table td:nth-child(1) { width: 24%; }
+.bank-account-table th:nth-child(2), .bank-account-table td:nth-child(2) { width: 30%; }
+.bank-account-table th:nth-child(3), .bank-account-table td:nth-child(3) { width: 32%; }
+.bank-account-table th:nth-child(4), .bank-account-table td:nth-child(4) { width: 14%; }
+.bank-account-table input { min-width: 0; }
+.bank-account-table .actions-cell { vertical-align: middle; }
+.bank-account-table .row-actions { align-items: center; }
 .client-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 22px; }
 .client-list { border-top: 1px solid #abb19d; margin-top: 26px; padding-top: 20px; }
 .client-table-wrap { margin-top: 14px; }
@@ -105,5 +116,5 @@ h3 { margin: 0; font-size: 19px; font-weight: 500; }
 .notes-field { margin-top: 4px; }
 .editor-footer { display: flex; align-items: end; justify-content: space-between; gap: 24px; border-top: 1px solid #abb19d; margin-top: 24px; padding-top: 20px; }
 dl { display: flex; gap: 22px; margin: 0; } dt { color: #647052; font-family: "Trebuchet MS", sans-serif; font-size: 12px; } dd { margin: 3px 0 0; font-variant-numeric: tabular-nums; } dl div:last-child dd { font-weight: 700; }
-@media (max-width: 760px) { .app-shell { padding: 26px 18px 48px; } .company-form { grid-template-columns: 1fr; } .wide-field, .form-actions { grid-column: auto; } .topbar, .topbar-title { align-items: flex-start; flex-direction: column; } .database-location { max-width: none; width: 100%; } h1 { font-size: 30px; } }
-@media (max-width: 760px) { .editor-modal, .client-modal { padding: 20px; } .editor-grid, .client-form { grid-template-columns: 1fr; } .line-item { grid-template-columns: 1fr 1fr; } .line-item input:first-child { grid-column: 1 / -1; } .editor-footer, dl { align-items: stretch; flex-direction: column; } .document-actions { align-items: end; flex-direction: column; gap: 6px; } .pagination-controls { align-items: flex-end; flex-direction: column; gap: 10px; } }
+@media (max-width: 760px) { .app-shell { padding: 26px 18px 48px; } .company-form { grid-template-columns: 1fr; } .wide-field, .form-actions { grid-column: auto; } .company-payment-settings { grid-template-columns: 1fr; } .bank-account-manager-button { justify-self: start; } .topbar, .topbar-title { align-items: flex-start; flex-direction: column; } .database-location { max-width: none; width: 100%; } h1 { font-size: 30px; } }
+@media (max-width: 760px) { .editor-modal, .client-modal, .bank-account-modal { padding: 20px; } .editor-grid, .client-form { grid-template-columns: 1fr; } .line-item { grid-template-columns: 1fr 1fr; } .line-item input:first-child { grid-column: 1 / -1; } .editor-footer, dl { align-items: stretch; flex-direction: column; } .document-actions { align-items: end; flex-direction: column; gap: 6px; } .pagination-controls { align-items: flex-end; flex-direction: column; gap: 10px; } }

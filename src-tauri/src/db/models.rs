@@ -35,7 +35,20 @@ pub struct CompanyInfo {
     pub tax_id: String,
     pub logo_path: Option<String>,
     pub default_currency: String,
+    #[serde(default)]
+    pub bank_accounts: Vec<BankAccount>,
+    #[serde(default)]
+    pub default_bank_account_id: Option<String>,
     pub output_directory: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BankAccount {
+    pub id: String,
+    pub nickname: String,
+    pub institution: String,
+    pub account_number: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

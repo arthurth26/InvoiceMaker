@@ -32,7 +32,7 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
   total: { borderTopColor: "#121212", borderTopWidth: 2, fontFamily: "Helvetica-Bold", fontSize: 12, marginTop: 4, paddingTop: 8 },
   notes: { borderTopColor: "#d4d4d4", borderTopWidth: 1, marginTop: 42, paddingTop: 14 },
-  footer: { bottom: 34, color: "#666666", fontSize: 8, left: 48, position: "absolute", right: 48, textAlign: "center" },
+  footer: { bottom: 34, color: "#000000", fontSize: 18, left: 48, position: "absolute", right: 48, textAlign: "center" },
 });
 
 function formatMoney(cents: number, currency: string) {
@@ -49,6 +49,7 @@ function contactDetails(name: string, address: string, email: string, phone: str
 
 function InvoicePdf({ company, client, document }: InvoicePdfProps) {
   const label = document.documentType === "invoice" ? "INVOICE" : "QUOTE";
+  const bankAccount = company.bankAccounts.find((account) => account.id === company.defaultBankAccountId);
   const clientDetails = client
     ? contactDetails(client.name, client.address, client.email, client.phone, client.taxId)
     : "Client details unavailable";
@@ -98,7 +99,9 @@ function InvoicePdf({ company, client, document }: InvoicePdfProps) {
       </View>
 
       {document.notes && <View style={styles.notes}><Text style={styles.label}>NOTES</Text><Text style={styles.details}>{document.notes}</Text></View>}
-      <Text fixed style={styles.footer}>{company.name || "Invoice Maker"} | {document.invoiceNumber}</Text>
+      <View fixed style={styles.footer}>
+        {document.documentType === "invoice" && bankAccount && <Text>Transfer the total amount to {bankAccount.accountNumber}</Text>}
+      </View>
     </Page>
   </PdfDocument>;
 }
